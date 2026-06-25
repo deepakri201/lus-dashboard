@@ -1,0 +1,2309 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Lung Ultrasound (LUS) IRR Dashboard</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Apache ECharts CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/echarts/dist/echarts.min.js"></script>
+    <!-- Google Identity Services (GIS) Client Library -->
+    <script src="https://accounts.google.com/gsi/client" async defer></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        darkBg: '#090c0f',
+                        panelBg: '#101419',
+                        borderClr: '#1d2530',
+                        brandTeal: '#00b4d8',
+                        brandPurple: '#9d4edf'
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        /* Custom PACS Scanline effect for imaging dashboards */
+        .pacs-glow {
+            box-shadow: 0 0 15px rgba(0, 180, 216, 0.15);
+        }
+        .custom-scrollbar::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-track {
+            background: #090c0f;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+            background: #202833;
+            border-radius: 4px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+            background: #2e3b4d;
+        }
+    </style>
+</head>
+<body class="bg-darkBg text-slate-100 h-full flex flex-col font-sans overflow-hidden">
+
+    <!-- LOGIN LOCK SCREEN OVERLAY -->
+    <div id="loginLockOverlay" class="fixed inset-0 bg-[#06080b]/98 z-50 flex items-center justify-center p-4 backdrop-blur-md transition-all">
+        <div class="max-w-md w-full bg-panelBg border border-borderClr rounded-2xl p-8 pacs-glow relative overflow-hidden">
+            <!-- Decorative Medical background glows -->
+            <div class="absolute -top-24 -left-24 w-48 h-48 rounded-full bg-cyan-500/10 blur-3xl"></div>
+            <div class="absolute -bottom-24 -right-24 w-48 h-48 rounded-full bg-purple-500/10 blur-3xl"></div>
+
+            <div class="flex flex-col items-center text-center relative z-10">
+                <!-- Gateway Lock Icon -->
+                <div class="p-4 bg-cyan-950/40 text-brandTeal rounded-2xl border border-cyan-800/40 mb-5">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.8" stroke="currentColor" class="w-10 h-10">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 10-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H6.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z" />
+                    </svg>
+                </div>
+                <h2 class="text-xl font-bold tracking-tight text-white mb-1">LUS Secure Gateway Login</h2>
+                <p class="text-xs text-slate-400 mb-6">Sign in with Google credentials to access GCS clinical ultrasound datasets.</p>
+
+                <!-- Target GCS indicator segment -->
+                <div class="w-full bg-black/30 border border-borderClr rounded-lg p-3.5 text-left mb-6 font-mono text-[11px] space-y-1">
+                    <div class="flex justify-between">
+                        <span class="text-slate-500">Target GCS Store:</span>
+                        <span class="text-cyan-400 font-bold" id="lockGcsTargetLabel">gs://...</span>
+                    </div>
+                    <div id="lockGcsDomainLimitRow" class="hidden justify-between">
+                        <span class="text-slate-500">Required Domain:</span>
+                        <span class="text-purple-400 font-bold" id="lockGcsDomainLabel">...</span>
+                    </div>
+                </div>
+
+                <div class="w-full text-left mb-4">
+                    <label for="lockDataSourceSelect" class="block text-[10px] uppercase tracking-wider text-slate-500 font-mono mb-1.5">Data Source</label>
+                    <select id="lockDataSourceSelect" class="w-full bg-[#181d24] border border-slate-700 rounded-lg px-3 py-2.5 text-sm text-slate-100 focus:outline-none focus:ring-1 focus:ring-brandTeal">
+                        <option value="">— Select data source —</option>
+                        <option value="computed">Calculate from annotations (JSON)</option>
+                        <option value="csv">Pre-computed stats (CSV)</option>
+                    </select>
+                    <p class="mt-1.5 text-[10px] text-slate-500 font-mono">CSV files load from gs://…/stats/</p>
+                </div>
+
+                <!-- Action buttons -->
+                <div class="w-full space-y-3">
+                    <button 
+                        type="button" 
+                        id="btnGoogleAuthConnect" 
+                        class="w-full py-3 bg-gradient-to-r from-cyan-600 to-teal-500 hover:from-cyan-500 hover:to-teal-400 text-white font-bold rounded-lg tracking-wider shadow text-xs flex items-center justify-center gap-2 transition-all active:scale-[0.99]"
+                    >
+                        <svg class="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
+                            <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/>
+                            <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/>
+                            <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z" fill="#FBBC05"/>
+                            <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z" fill="#EA4335"/>
+                        </svg>
+                        Sign in with Google
+                    </button>
+
+                    <button 
+                        type="button" 
+                        id="btnLockBypassDemo" 
+                        class="w-full py-2.5 bg-slate-900 hover:bg-slate-800 border border-slate-700 text-slate-300 rounded-lg text-xs font-semibold tracking-wide transition-all"
+                    >
+                        Demo Mode (Offline Simulation)
+                    </button>
+                </div>
+
+                <!-- Error feedback -->
+                <div id="lockGateErrorMessage" class="hidden mt-4 text-[11px] text-rose-400 bg-rose-950/30 border border-rose-900/30 p-2.5 rounded-lg w-full text-left font-mono"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- HEADER / NAVIGATION -->
+    <header class="bg-panelBg border-b border-borderClr px-6 py-4 flex flex-col md:flex-row md:items-center justify-between gap-4 shrink-0">
+        <div class="flex items-center gap-3">
+            <div class="p-2.5 bg-cyan-950/50 text-brandTeal rounded-lg border border-cyan-800/30">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-6 h-6">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 12c0-1.232-.046-2.453-.138-3.662a4.006 4.006 0 00-3.7-3.7 48.656 48.656 0 00-7.324 0 4.006 4.006 0 00-3.7 3.7C4.747 9.547 4.7 10.768 4.7 12c0 1.232.046 2.453.138 3.662a4.006 4.006 0 003.7 3.7 48.656 48.656 0 007.324 0 4.006 4.006 0 003.7-3.7c.092-1.209.138-2.43.138-3.662z" />
+                </svg>
+            </div>
+            <div>
+                <div class="flex items-center gap-2">
+                    <span class="text-[10px] tracking-wider uppercase text-cyan-400 font-bold bg-cyan-950/60 px-2 py-0.5 rounded border border-cyan-800/50">Secure Google Portal</span>
+                    <span id="pacsConnectionModeBadge" class="text-[10px] tracking-wider uppercase text-amber-500 font-bold bg-amber-950/60 px-2 py-0.5 rounded border border-amber-800/50">Offline</span>
+                </div>
+                <h1 class="text-lg font-semibold tracking-tight text-white mt-0.5 font-sans">LUS Inter-Rater Reliability Monitor</h1>
+            </div>
+        </div>
+
+        <div class="flex items-center gap-4">
+            <!-- Active Authenticated User Details -->
+            <div id="userProfileIndicator" class="hidden items-center gap-2.5 bg-slate-900/60 border border-borderClr px-3.5 py-1.5 rounded-lg text-xs">
+                <button id="btnSignOut" class="px-2 py-1 bg-rose-950/40 hover:bg-rose-900/50 text-rose-400 border border-rose-900/40 rounded text-[10px] font-bold transition-colors">
+                    Disconnect
+                </button>
+            </div>
+
+            <div class="hidden lg:flex items-center gap-2 text-xs text-slate-400 bg-slate-950 border border-borderClr px-3 py-1.5 rounded">
+                <span id="gcsConnectionStatusPing" class="relative flex h-2 w-2">
+                    <span class="relative inline-flex rounded-full h-2 w-2 bg-amber-500"></span>
+                </span>
+                <span id="gcsStatusText">Running: <strong class="text-slate-300">Offline Simulation</strong></span>
+            </div>
+        </div>
+    </header>
+
+    <!-- MAIN WORKSPACE CONTAINER -->
+    <div class="flex-1 overflow-y-auto custom-scrollbar p-6">
+        <div class="max-w-[1600px] mx-auto space-y-5">
+
+            <!-- STEP 1: PHASE & PATIENT CONTROLS -->
+            <div class="border border-borderClr bg-panelBg rounded-xl p-5 pacs-glow">
+                <div class="flex flex-col lg:flex-row lg:items-end gap-4">
+                    <div class="flex-1 min-w-[200px]">
+                        <label for="dataSourceSelect" class="block text-[10px] uppercase tracking-wider text-slate-500 font-mono mb-1.5">Data Source</label>
+                        <select id="dataSourceSelect" class="w-full bg-[#181d24] border border-slate-700 rounded-lg px-3 py-2.5 text-sm text-slate-100 focus:outline-none focus:ring-1 focus:ring-brandTeal">
+                            <option value="">— Select data source —</option>
+                            <option value="computed">Calculate from annotations (JSON)</option>
+                            <option value="csv">Pre-computed stats (CSV)</option>
+                        </select>
+                    </div>
+                    <div class="flex-1 min-w-[200px]">
+                        <label for="phaseSelect" class="block text-[10px] uppercase tracking-wider text-slate-500 font-mono mb-1.5">Phase</label>
+                        <select id="phaseSelect" disabled class="w-full bg-[#181d24] border border-slate-700 rounded-lg px-3 py-2.5 text-sm text-slate-100 focus:outline-none focus:ring-1 focus:ring-brandTeal disabled:opacity-40">
+                            <option value="">— Select a phase —</option>
+                        </select>
+                    </div>
+                    <div class="flex-1 min-w-[200px]">
+                        <label for="patientSelect" class="block text-[10px] uppercase tracking-wider text-slate-500 font-mono mb-1.5">Patient</label>
+                        <select id="patientSelect" disabled class="w-full bg-[#181d24] border border-slate-700 rounded-lg px-3 py-2.5 text-sm text-slate-100 focus:outline-none focus:ring-1 focus:ring-brandTeal disabled:opacity-40">
+                            <option value="">All patients in phase</option>
+                        </select>
+                    </div>
+                    <div class="flex-1 min-w-[200px]">
+                        <label for="zoneSelect" class="block text-[10px] uppercase tracking-wider text-slate-500 font-mono mb-1.5">Lung Zone</label>
+                        <select id="zoneSelect" disabled class="w-full bg-[#181d24] border border-slate-700 rounded-lg px-3 py-2.5 text-sm text-slate-100 focus:outline-none focus:ring-1 focus:ring-brandTeal disabled:opacity-40">
+                            <option value="">All zones (max)</option>
+                        </select>
+                    </div>
+                    <div class="flex gap-3 flex-1 min-w-[280px]">
+                        <div class="flex-1">
+                            <label class="block text-[10px] uppercase tracking-wider text-slate-500 font-mono mb-1.5">Rater A</label>
+                            <div id="selectRaterAContainer"></div>
+                        </div>
+                        <div class="flex-1">
+                            <label class="block text-[10px] uppercase tracking-wider text-slate-500 font-mono mb-1.5">Rater B</label>
+                            <div id="selectRaterBContainer"></div>
+                        </div>
+                    </div>
+                </div>
+                <p id="analysisScopeLabel" class="mt-3 text-[11px] text-slate-500 font-mono">Select a data source, then choose a phase to begin analysis.</p>
+            </div>
+
+            <!-- ANALYSIS WORKSPACE (visible after phase chosen) -->
+            <div id="unlockedWorkspace" class="hidden space-y-5">
+
+                <!-- STEP 2: IRR COMPARISON PLOTS -->
+                <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+                    <div class="border border-borderClr bg-panelBg rounded-xl p-4">
+                        <div class="flex items-center justify-between border-b border-borderClr pb-2 mb-3">
+                            <h3 class="text-xs font-bold uppercase tracking-wider text-slate-300">Pleura %</h3>
+                            <span id="pleuraStatBadge" class="text-[10px] font-mono text-cyan-400 bg-cyan-950/50 px-2 py-0.5 rounded border border-cyan-800/40">r = —</span>
+                        </div>
+                        <div id="pleuraChart" class="w-full h-56"></div>
+                    </div>
+                    <div class="border border-borderClr bg-panelBg rounded-xl p-4">
+                        <div class="flex items-center justify-between border-b border-borderClr pb-2 mb-3">
+                            <h3 class="text-xs font-bold uppercase tracking-wider text-slate-300">Discrete B-Lines</h3>
+                            <span id="discreteStatBadge" class="text-[10px] font-mono text-brandPurple bg-purple-950/50 px-2 py-0.5 rounded border border-purple-800/40">κ = —</span>
+                        </div>
+                        <div id="discreteChart" class="w-full h-56"></div>
+                    </div>
+                    <div class="border border-borderClr bg-panelBg rounded-xl p-4">
+                        <div class="flex items-center justify-between border-b border-borderClr pb-2 mb-3">
+                            <h3 class="text-xs font-bold uppercase tracking-wider text-slate-300">Confluent B-Lines</h3>
+                            <span id="confluentStatBadge" class="text-[10px] font-mono text-amber-400 bg-amber-950/50 px-2 py-0.5 rounded border border-amber-800/40">κ = —</span>
+                        </div>
+                        <div id="confluentChart" class="w-full h-56"></div>
+                    </div>
+                </div>
+
+                <!-- STEP 3: METRICS TABLE -->
+                <div class="border border-borderClr bg-panelBg rounded-xl overflow-hidden">
+                    <div class="border-b border-borderClr bg-black/20 px-5 py-4 flex flex-wrap justify-between items-center gap-2">
+                        <div>
+                            <h3 class="text-xs font-bold uppercase tracking-wider text-slate-200">Case Metrics</h3>
+                            <p class="text-[11px] text-slate-500">Scroll through filtered cases and open max-frame PNG viewers.</p>
+                        </div>
+                        <span id="tableOutputTotalCount" class="text-[11px] text-slate-500 font-mono">No cases loaded.</span>
+                    </div>
+                    <div class="overflow-x-auto max-h-[480px] custom-scrollbar">
+                        <table class="w-full text-left text-xs text-slate-300">
+                            <thead class="bg-black/40 text-slate-400 text-[10px] tracking-wider uppercase border-b border-borderClr sticky top-0 z-10">
+                                <tr>
+                                    <th class="py-3 px-4">Case ID</th>
+                                    <th class="py-3 px-4" id="thRaterA">Rater A</th>
+                                    <th class="py-3 px-4" id="thRaterB">Rater B</th>
+                                    <th class="py-3 px-4 text-center">Variance</th>
+                                    <th class="py-3 px-4 text-right">PNG Views</th>
+                                </tr>
+                            </thead>
+                            <tbody id="clinicalCaseTableBody" class="divide-y divide-borderClr/60 font-mono"></tbody>
+                        </table>
+                    </div>
+                </div>
+
+            </div>
+
+        </div>
+    </div>
+
+    <!-- GCP SECURE CONFIGURATION PANEL (HIDDEN) -->
+    <div class="hidden">
+        <input type="text" id="ohifBaseUrlInput" value="https://ai4ultrasound-research-tools.web.app/local" />
+        <input type="text" id="gcpBucketNameInput" value="deepa_dashboard" />
+        <input type="radio" name="gcsLoadMode" id="loadModeJson" checked />
+        <input type="radio" name="gcsLoadMode" id="loadModeDirect" />
+        <button id="btnSyncGCS"></button>
+        <button id="btnResyncActiveSession"></button>
+    </div>
+
+    <!-- LOGIC & STATISTICS CORE ENGINE -->
+    <script>
+        // ===================================================
+        // GCP SYSTEM CONFIGURATION CONSTANTS (EDIT HERE)
+        // ===================================================
+        const GCP_CLIENT_ID = "820901988036-978g4l7urbblf0p7g4l9u1t0nsbrc3k9.apps.googleusercontent.com"; // Provide your real Google Client ID
+        const GCS_BUCKET_NAME = "deepa_dashboard";                                // Your GCS bucket name
+        const GCS_ASSIGNMENTS_ROOT = "completed-assignments-all";               // Root folder for completed assignment exports
+        const GCS_STATS_ROOT = "stats";                                         // Pre-computed stats CSVs (sibling of assignments root)
+        const GCS_PNGS_ROOT = "pngs";                                           // Pre-computed max-frame PNGs (mirrors assignments layout)
+
+        const LUNG_ZONE_ORDER = [
+            "right anterior upper (1)",
+            "right anterior lower (2)",
+            "right lateral upper (3)",
+            "right lateral lower (4)",
+            "left anterior upper (5)",
+            "left anterior lower (6)",
+            "left lateral upper (7)",
+            "left lateral lower (8)"
+        ];
+        const ALLOWED_EMAIL_DOMAIN = "";                                         // e.g. "@yourhospital.org" (Leave empty to authorize any valid Google Account)
+
+        // ===================================================
+        // SYSTEM STATE VARIABLES
+        // ===================================================
+        let globalCasesMap = {};
+        let globalDataset = [];
+        let selectedPhase = "";
+        let selectedPatientId = "";
+        let selectedZone = "";
+        let dataSourceMode = "";
+        let isDatasetReady = false;
+        let googleTokenClient = null;
+        let gcpAccessToken = null;
+
+        // Discovered lists
+        let discoveredPhases = [];
+        let discoveredRaters = [];
+        let raterAName = "Rater_A";
+        let raterBName = "Rater_B";
+
+        // ECharts references
+        const chartInstances = {};
+
+        // ===================================================
+        // RENDER LOGS UTILITY
+        // ===================================================
+        function appendLog(text, type = 'info') {
+            const consoleLog = document.getElementById("consoleLog");
+            if (!consoleLog) return;
+            const div = document.createElement("div");
+            let clr = "text-slate-400";
+            if (type === 'success') clr = "text-emerald-400";
+            if (type === 'error') clr = "text-rose-400";
+            div.className = clr;
+            div.innerText = `[${new Date().toLocaleTimeString()}] ${text}`;
+            consoleLog.appendChild(div);
+            consoleLog.scrollTop = consoleLog.scrollHeight;
+        }
+
+        // ===================================================
+        // HIGH FIDELITY MOCK DATA GENERATOR (Fallback mode)
+        // ===================================================
+        const generateMockDataset = () => {
+            discoveredRaters = ["andrew", "sarah"];
+            raterAName = "andrew";
+            raterBName = "sarah";
+            
+            globalCasesMap = {};
+            const mockPhases = ["phase-3", "phase-4", "phase-5"];
+            const mockRaters = ["andrew", "sarah"];
+            const root = GCS_ASSIGNMENTS_ROOT;
+
+            for (let i = 1; i <= 30; i++) {
+                const caseId = `${(0x202348100000 + i).toString(16)}`;
+                const phase = i <= 10 ? mockPhases[0] : i <= 20 ? mockPhases[1] : mockPhases[2];
+                
+                const rA_pleura = Math.round(70 + Math.random() * 30 - (i % 4 === 0 ? 15 : 0));
+                const rA_discrete = Math.min(6, Math.max(0, Math.floor(Math.random() * 4) + (i % 6 === 0 ? 2 : 0)));
+                const rA_confluent = Math.min(3, Math.max(0, Math.floor(Math.random() * 2) + (rA_discrete > 3 ? 1 : 0)));
+
+                let rB_pleura = rA_pleura + Math.round((Math.random() - 0.5) * 10);
+                if (i % 5 === 0) rB_pleura -= 14; 
+                rB_pleura = Math.min(100, Math.max(0, rB_pleura));
+
+                let rB_discrete = rA_discrete;
+                if (Math.random() > 0.45) {
+                    rB_discrete = Math.min(6, Math.max(0, rA_discrete + (Math.random() > 0.5 ? 1 : -1)));
+                }
+
+                let rB_confluent = rA_confluent;
+                if (Math.random() > 0.5) {
+                    rB_confluent = Math.min(3, Math.max(0, rA_confluent + (Math.random() > 0.5 ? 1 : -1)));
+                }
+
+                const annotatorA = `${mockRaters[0]}-r21-lahey-mock-assignment-full-scale-${phase}`;
+                const annotatorB = `${mockRaters[1]}-r21-lahey-mock-assignment-full-scale-${phase}`;
+                const dicomName = `${caseId}_ultrasound.dcm`;
+                const clipHash = `${caseId.slice(0, 10)}_${(0x103f8d09 + i).toString(16)}`;
+
+                const mockZones = [
+                    "right anterior upper (1)",
+                    "right lateral lower (4)",
+                    "left anterior upper (5)"
+                ];
+                const lungZone = mockZones[i % mockZones.length];
+
+                globalCasesMap[`${phase}_${caseId}`] = {
+                    id: caseId,
+                    phase: phase,
+                    dicomFileName: dicomName,
+                    annotations: {
+                        [mockRaters[0]]: {
+                            percentPleura: rA_pleura,
+                            discreteBLines: rA_discrete,
+                            confluentBLines: rA_confluent
+                        },
+                        [mockRaters[1]]: {
+                            percentPleura: rB_pleura,
+                            discreteBLines: rB_discrete,
+                            confluentBLines: rB_confluent
+                        }
+                    },
+                    clipScores: {
+                        [mockRaters[0]]: {
+                            [clipHash]: {
+                                percentPleura: rA_pleura,
+                                discreteBLines: rA_discrete,
+                                confluentBLines: rA_confluent,
+                                lungZone,
+                                jsonPath: `${root}/${phase}/${annotatorA}/${caseId}/${clipHash}.andrew_goldsmith.manual_lus_score.json`
+                            }
+                        },
+                        [mockRaters[1]]: {
+                            [clipHash]: {
+                                percentPleura: rB_pleura,
+                                discreteBLines: rB_discrete,
+                                confluentBLines: rB_confluent,
+                                lungZone,
+                                jsonPath: `${root}/${phase}/${annotatorB}/${caseId}/${clipHash}.sarah_smith.manual_lus_score.json`
+                            }
+                        }
+                    },
+                    gcsPaths: {
+                        [mockRaters[0]]: {
+                            dicomPath: `${root}/${phase}/${annotatorA}/${caseId}/${dicomName}`,
+                            jsonPath: `${root}/${phase}/${annotatorA}/${caseId}/${clipHash}.andrew_goldsmith.manual_lus_score.json`
+                        },
+                        [mockRaters[1]]: {
+                            dicomPath: `${root}/${phase}/${annotatorB}/${caseId}/${dicomName}`,
+                            jsonPath: `${root}/${phase}/${annotatorB}/${caseId}/${clipHash}.sarah_smith.manual_lus_score.json`
+                        }
+                    }
+                };
+            }
+            
+            discoveredRaters = mockRaters;
+            raterAName = mockRaters[0];
+            raterBName = mockRaters[1];
+            discoveredPhases = mockPhases;
+            mapDatasetForRaters();
+            rebuildPhaseSelector();
+            updateRatersDropdowns();
+        };
+
+        // ===================================================
+        // DATA PROCESSING PIPELINE
+        // ===================================================
+        function mapDatasetForRaters() {
+            globalDataset = Object.values(globalCasesMap).map(caseObj => {
+                const raterA = summarizeClipScores(caseObj.clipScores?.[raterAName]) || caseObj.annotations[raterAName] || null;
+                const raterB = summarizeClipScores(caseObj.clipScores?.[raterBName]) || caseObj.annotations[raterBName] || null;
+                return {
+                    id: caseObj.id,
+                    phase: caseObj.phase,
+                    dicomFileName: caseObj.dicomFileName,
+                    raterA,
+                    raterB,
+                    clipScores: caseObj.clipScores || {},
+                    gcsPaths: caseObj.gcsPaths,
+                    pngPaths: caseObj.pngPaths || {},
+                    annotatorFolders: caseObj.annotatorFolders || {}
+                };
+            });
+        }
+
+        function filterClipMapByZone(clipMap, zone) {
+            if (!clipMap) return {};
+            if (!zone) return clipMap;
+            const filtered = {};
+            Object.entries(clipMap).forEach(([hash, clip]) => {
+                if (clip.lungZone === zone) filtered[hash] = clip;
+            });
+            return filtered;
+        }
+
+        function summarizeClipScores(clipMap, zone) {
+            const clips = Object.values(filterClipMapByZone(clipMap, zone));
+            if (!clips.length) return null;
+            return mergeMaxMetrics(clips);
+        }
+
+        function formatFrameSuffix(frame) {
+            return frame != null && frame !== "" ? ` (frame ${frame})` : "";
+        }
+
+        function getCaseMetricsForZone(item, zone) {
+            return {
+                raterA: summarizeClipScores(item.clipScores?.[raterAName], zone),
+                raterB: summarizeClipScores(item.clipScores?.[raterBName], zone)
+            };
+        }
+
+        function getMatchedClipPairs(item, raterA, raterB, zone) {
+            const clipA = filterClipMapByZone(item.clipScores?.[raterA], zone);
+            const clipB = filterClipMapByZone(item.clipScores?.[raterB], zone);
+            const pairs = [];
+
+            Object.keys(clipA).forEach(fileHash => {
+                if (!clipB[fileHash]) return;
+                pairs.push({
+                    clipId: fileHash,
+                    label: clipA[fileHash].lungZone || fileHash.slice(-8),
+                    raterA: clipA[fileHash],
+                    raterB: clipB[fileHash]
+                });
+            });
+
+            return pairs;
+        }
+
+        function buildIrrChartDataset(cases, zone) {
+            const clipPairs = [];
+            cases.forEach(item => {
+                getMatchedClipPairs(item, raterAName, raterBName, zone).forEach(pair => {
+                    clipPairs.push({
+                        id: `${item.id} · ${pair.label}`,
+                        caseId: item.id,
+                        caseItem: item,
+                        zone: pair.raterA.lungZone || pair.label || null,
+                        raterA: pair.raterA,
+                        raterB: pair.raterB
+                    });
+                });
+            });
+
+            if (clipPairs.length > 0) return clipPairs;
+
+            return cases
+                .map(item => {
+                    const metrics = getCaseMetricsForZone(item, zone);
+                    return {
+                        id: item.id,
+                        caseId: item.id,
+                        caseItem: item,
+                        zone: zone || null,
+                        raterA: metrics.raterA,
+                        raterB: metrics.raterB
+                    };
+                })
+                .filter(item => item.raterA && item.raterB);
+        }
+
+        function resolveChartPointCase(chartItem) {
+            if (chartItem?.caseItem) return chartItem.caseItem;
+            const caseId = chartItem?.caseId || String(chartItem?.id || "").split(" · ")[0].trim();
+            if (!caseId) return null;
+            return getFilteredCases().find(c => c.id === caseId)
+                || globalDataset.find(c => c.id === caseId)
+                || null;
+        }
+
+        function resolveChartPointZone(chartItem) {
+            if (chartItem?.zone) return chartItem.zone;
+            return selectedZone || null;
+        }
+
+        function openPngMetricViewerFromChart(chartItem, metric) {
+            const caseItem = resolveChartPointCase(chartItem);
+            if (!caseItem) return;
+            const zone = resolveChartPointZone(chartItem);
+            const url = buildPngMetricViewerUrl(caseItem, metric, zone);
+            if (url) window.open(url, "_blank", "noopener");
+        }
+
+        function collectZonesFromCases(cases) {
+            const zones = new Set();
+            cases.forEach(item => {
+                [raterAName, raterBName].forEach(rater => {
+                    Object.values(item.clipScores?.[rater] || {}).forEach(clip => {
+                        if (clip.lungZone) zones.add(clip.lungZone);
+                    });
+                });
+            });
+            return Array.from(zones).sort((a, b) => {
+                const na = parseInt(a.match(/\((\d+)\)\s*$/)?.[1] || "999", 10);
+                const nb = parseInt(b.match(/\((\d+)\)\s*$/)?.[1] || "999", 10);
+                return na - nb || a.localeCompare(b);
+            });
+        }
+
+        // ===================================================
+        // PHASE & PATIENT SELECTORS
+        // ===================================================
+        function formatPhaseLabel(phase) {
+            const m = phase.match(/^phase[-_]?(\d+)$/i);
+            if (m) return `Phase ${m[1]}`;
+            const lastFolder = phase.split('/').filter(Boolean).pop() || phase;
+            return lastFolder.replace(/_/g, ' ');
+        }
+
+        function parsePhaseNumber(phase) {
+            return parseInt(phase.match(/^phase[-_]?(\d+)$/i)?.[1] || "0", 10);
+        }
+
+        // Bucket layout:
+        // completed-assignments-all/phase-5/andrew-r21-lahey-.../20234810059e/6e12e56a7d_103f8d09.andrew_goldsmith.manual_lus_score.json
+        const CASE_FOLDER_PATTERN = /^[0-9a-f]{10,16}$/i;
+
+        function isBatchSegment(segment) {
+            return /^batch[-_]/i.test(segment);
+        }
+
+        function isPhaseSegment(segment) {
+            return /^phase[-_]?\d+$/i.test(segment);
+        }
+
+        function extractRaterFromAnnotatorFolder(folder) {
+            if (!folder) return "";
+            return folder.split('-')[0].split('_')[0].trim().toLowerCase() || folder;
+        }
+
+        function extractCaseFolderFromPath(parts) {
+            const parentFolder = parts[parts.length - 2];
+            if (parentFolder && !isBatchSegment(parentFolder) && !isPhaseSegment(parentFolder) && CASE_FOLDER_PATTERN.test(parentFolder)) {
+                return parentFolder.toLowerCase();
+            }
+
+            for (let i = parts.length - 2; i >= 0; i--) {
+                if (isBatchSegment(parts[i]) || isPhaseSegment(parts[i])) continue;
+                if (parts[i] === GCS_ASSIGNMENTS_ROOT) continue;
+                if (CASE_FOLDER_PATTERN.test(parts[i])) return parts[i].toLowerCase();
+            }
+            return "";
+        }
+
+        function isUnderAssignmentsRoot(objectName) {
+            const normalized = objectName.replace(/^\/+/, "");
+            return normalized === GCS_ASSIGNMENTS_ROOT || normalized.startsWith(`${GCS_ASSIGNMENTS_ROOT}/`);
+        }
+
+        function parseGcsObjectPath(objectName) {
+            const parts = objectName.split('/').filter(Boolean);
+            if (parts.length < 5) return null;
+            if (parts[0].toLowerCase() !== GCS_ASSIGNMENTS_ROOT.toLowerCase()) return null;
+
+            const filename = parts[parts.length - 1];
+            const lower = filename.toLowerCase();
+            const isJson = lower.endsWith('.json');
+            const isDicom = lower.endsWith('.dcm');
+
+            if (isJson && !lower.includes('.manual_lus_score.json')) return null;
+            if (!isJson && !isDicom) return null;
+
+            // completed-assignments-all / phase-N / annotator / case / file
+            if (!isPhaseSegment(parts[1])) return null;
+
+            const phase = parts[1].toLowerCase();
+            const raterName = extractRaterFromAnnotatorFolder(parts[2]);
+            const caseId = extractCaseFolderFromPath(parts);
+
+            if (!caseId || !raterName) return null;
+
+            return { phase, raterName, caseId, filename, isJson, isDicom };
+        }
+
+        function pickNumericField(obj, keys) {
+            if (!obj || typeof obj !== 'object') return undefined;
+            for (const key of keys) {
+                if (obj[key] !== undefined && obj[key] !== null && obj[key] !== '') {
+                    const n = Number(obj[key]);
+                    if (!Number.isNaN(n)) return n;
+                }
+            }
+            return undefined;
+        }
+
+        function extractMetricsFromFrameAnnotation(frame) {
+            if (!frame || typeof frame !== 'object') return null;
+            if (frame.type && frame.type !== 'manual_lus_score') return null;
+
+            const percentPleura = pickNumericField(frame, [
+                'pleura_percentage', 'percentPleura', 'pleura', 'pleura_line_percentage', 'percent_pleura'
+            ]);
+            const discreteBLines = pickNumericField(frame, [
+                'discreteBLines', 'discrete', 'discrete_b_lines', 'b_lines_discrete'
+            ]) ?? pickNumericField(frame.b_line_count, ['discrete']);
+            const confluentBLines = pickNumericField(frame, [
+                'confluentBLines', 'confluent', 'confluent_b_lines', 'b_lines_confluent'
+            ]) ?? pickNumericField(frame.b_line_count, ['confluent']);
+
+            if (percentPleura === undefined && discreteBLines === undefined && confluentBLines === undefined) {
+                return null;
+            }
+
+            return {
+                percentPleura: percentPleura ?? 0,
+                discreteBLines: discreteBLines ?? 0,
+                confluentBLines: confluentBLines ?? 0
+            };
+        }
+
+        function maxMetricsWithFrames(frameEntries) {
+            if (!frameEntries.length) return null;
+
+            let pleuraBest = { value: -Infinity, frame: null };
+            let discreteBest = { value: -Infinity, frame: null };
+            let confluentBest = { value: -Infinity, frame: null };
+
+            frameEntries.forEach(({ frameNum, percentPleura, discreteBLines, confluentBLines }) => {
+                if (percentPleura > pleuraBest.value) {
+                    pleuraBest = { value: percentPleura, frame: frameNum };
+                }
+                if (discreteBLines > discreteBest.value) {
+                    discreteBest = { value: discreteBLines, frame: frameNum };
+                }
+                if (confluentBLines > confluentBest.value) {
+                    confluentBest = { value: confluentBLines, frame: frameNum };
+                }
+            });
+
+            return {
+                percentPleura: pleuraBest.value === -Infinity ? 0 : pleuraBest.value,
+                pleuraFrame: pleuraBest.frame,
+                discreteBLines: discreteBest.value === -Infinity ? 0 : discreteBest.value,
+                discreteFrame: discreteBest.frame,
+                confluentBLines: confluentBest.value === -Infinity ? 0 : confluentBest.value,
+                confluentFrame: confluentBest.frame
+            };
+        }
+
+        function mergeMaxMetrics(metricsList) {
+            if (!metricsList.length) return null;
+
+            const pickBest = (field, frameField) => {
+                let best = metricsList[0];
+                metricsList.forEach(m => {
+                    if ((m[field] ?? 0) > (best[field] ?? 0)) best = m;
+                });
+                return { value: best[field] ?? 0, frame: best[frameField] ?? null };
+            };
+
+            const pleura = pickBest("percentPleura", "pleuraFrame");
+            const discrete = pickBest("discreteBLines", "discreteFrame");
+            const confluent = pickBest("confluentBLines", "confluentFrame");
+
+            return {
+                percentPleura: pleura.value,
+                pleuraFrame: pleura.frame,
+                discreteBLines: discrete.value,
+                discreteFrame: discrete.frame,
+                confluentBLines: confluent.value,
+                confluentFrame: confluent.frame
+            };
+        }
+
+        function extractMetricsFromLusJson(json) {
+            // Primary format: max across all annotated frames in this clip
+            if (json?.frame_annotations && typeof json.frame_annotations === "object") {
+                const frameEntries = Object.entries(json.frame_annotations)
+                    .map(([frameNum, frame]) => {
+                        const metrics = extractMetricsFromFrameAnnotation(frame);
+                        return metrics ? { frameNum, ...metrics } : null;
+                    })
+                    .filter(Boolean);
+
+                if (frameEntries.length > 0) {
+                    return maxMetricsWithFrames(frameEntries);
+                }
+            }
+
+            // Flat / legacy formats
+            const sources = [
+                json,
+                json?.scores,
+                json?.annotation,
+                json?.annotations,
+                json?.manual_lus_score,
+                json?.lus_score,
+                json?.lus,
+                json?.data,
+                json?.metadata
+            ].filter(Boolean);
+
+            for (const src of sources) {
+                const fromFrame = extractMetricsFromFrameAnnotation(src);
+                if (fromFrame) return fromFrame;
+
+                const percentPleura = pickNumericField(src, [
+                    'percentPleura', 'pleura', 'pleura_percentage', 'pleura_line_percentage',
+                    'percent_pleura', 'pleural_line_percent', 'pleura_percent', 'pleuraPercent'
+                ]);
+                const discreteBLines = pickNumericField(src, [
+                    'discreteBLines', 'discrete', 'discrete_b_lines', 'b_lines_discrete',
+                    'discrete_b_line_count', 'discreteBLinesCount', 'discrete_bline_count'
+                ]) ?? pickNumericField(src?.b_line_count, ['discrete']);
+                const confluentBLines = pickNumericField(src, [
+                    'confluentBLines', 'confluent', 'confluent_b_lines', 'b_lines_confluent',
+                    'confluent_b_line_count', 'confluentBLinesCount', 'confluent_bline_count'
+                ]) ?? pickNumericField(src?.b_line_count, ['confluent']);
+
+                if (percentPleura !== undefined || discreteBLines !== undefined || confluentBLines !== undefined) {
+                    return {
+                        percentPleura: percentPleura ?? 0,
+                        pleuraFrame: null,
+                        discreteBLines: discreteBLines ?? 0,
+                        discreteFrame: null,
+                        confluentBLines: confluentBLines ?? 0,
+                        confluentFrame: null
+                    };
+                }
+            }
+
+            return {
+                percentPleura: 0,
+                pleuraFrame: null,
+                discreteBLines: 0,
+                discreteFrame: null,
+                confluentBLines: 0,
+                confluentFrame: null
+            };
+        }
+
+        function rebuildPhaseSelector() {
+            const select = document.getElementById("phaseSelect");
+            if (!select) return;
+
+            const prev = selectedPhase;
+            select.innerHTML = `<option value="">— Select a phase —</option>`;
+            discoveredPhases.forEach(p => {
+                const opt = document.createElement("option");
+                opt.value = p;
+                opt.textContent = formatPhaseLabel(p);
+                select.appendChild(opt);
+            });
+
+            if (prev && discoveredPhases.includes(prev)) {
+                select.value = prev;
+            } else if (discoveredPhases.length === 1) {
+                selectedPhase = discoveredPhases[0];
+                select.value = selectedPhase;
+            } else {
+                selectedPhase = select.value;
+            }
+
+            rebuildPatientSelector();
+        }
+
+        function rebuildPatientSelector() {
+            const select = document.getElementById("patientSelect");
+            if (!select) return;
+
+            select.innerHTML = `<option value="">All patients in phase</option>`;
+
+            if (!selectedPhase) {
+                select.disabled = true;
+                selectedPatientId = "";
+                return;
+            }
+
+            select.disabled = false;
+            const phaseCases = globalDataset
+                .filter(item => item.phase === selectedPhase)
+                .sort((a, b) => a.id.localeCompare(b.id));
+
+            phaseCases.forEach(item => {
+                const opt = document.createElement("option");
+                opt.value = item.id;
+                opt.textContent = item.id;
+                select.appendChild(opt);
+            });
+
+            if (selectedPatientId && phaseCases.some(c => c.id === selectedPatientId)) {
+                select.value = selectedPatientId;
+            } else {
+                selectedPatientId = "";
+                select.value = "";
+            }
+
+            rebuildZoneSelector();
+        }
+
+        function rebuildZoneSelector() {
+            const select = document.getElementById("zoneSelect");
+            if (!select) return;
+
+            select.innerHTML = `<option value="">All zones (max)</option>`;
+
+            if (!selectedPhase) {
+                select.disabled = true;
+                selectedZone = "";
+                return;
+            }
+
+            const zones = collectZonesFromCases(getFilteredCases());
+            select.disabled = zones.length === 0;
+
+            zones.forEach(zone => {
+                const opt = document.createElement("option");
+                opt.value = zone;
+                opt.textContent = zone;
+                select.appendChild(opt);
+            });
+
+            if (selectedZone && zones.includes(selectedZone)) {
+                select.value = selectedZone;
+            } else {
+                selectedZone = "";
+                select.value = "";
+            }
+        }
+
+        function getFilteredCases() {
+            if (!selectedPhase) return [];
+            let cases = globalDataset.filter(item => item.phase === selectedPhase);
+            if (selectedPatientId) {
+                cases = cases.filter(item => item.id === selectedPatientId);
+            }
+            return cases;
+        }
+
+        function buildGcsMediaUrl(objectPath) {
+            const bucket = document.getElementById("gcpBucketNameInput").value.trim() || GCS_BUCKET_NAME;
+            let url = `https://storage.googleapis.com/storage/v1/b/${bucket}/o/${encodeURIComponent(objectPath)}?alt=media`;
+            if (gcpAccessToken) {
+                url += `&access_token=${encodeURIComponent(gcpAccessToken)}`;
+            }
+            return url;
+        }
+
+        const PNG_METRICS = ["pleura", "discrete", "confluent"];
+        // gs://{bucket}/pngs/.../{file_hash}_pleura.png | _discrete.png | _confluent.png
+        function pngClipFileName(fileHash, metric) {
+            return `${fileHash}_${metric}.png`;
+        }
+
+        function parsePngClipFileName(fileName) {
+            const m = String(fileName).match(/^(.+)_(pleura|discrete|confluent)\.png$/i);
+            if (!m) return null;
+            return { fileHash: m[1], metric: m[2].toLowerCase() };
+        }
+
+        function buildPngClipObjectPath(item, raterName, fileHash, metric) {
+            const folder = getAnnotatorFolderFromItem(item, raterName);
+            if (!folder || !item.phase || !item.id) return null;
+            return `${GCS_PNGS_ROOT}/${item.phase}/${folder}/${item.id}/${pngClipFileName(fileHash, metric)}`;
+        }
+
+        function getAnnotatorFolderFromItem(item, raterName) {
+            if (item.annotatorFolders?.[raterName]) {
+                return item.annotatorFolders[raterName];
+            }
+            const jsonPath = item.gcsPaths?.[raterName]?.jsonPath
+                || Object.values(item.clipScores?.[raterName] || {}).find(c => c.jsonPath)?.jsonPath;
+            if (jsonPath) {
+                const parts = jsonPath.split("/").filter(Boolean);
+                const rootIdx = parts.findIndex(p => p.toLowerCase() === GCS_ASSIGNMENTS_ROOT.toLowerCase());
+                if (rootIdx >= 0 && parts.length > rootIdx + 2) {
+                    return parts[rootIdx + 2];
+                }
+            }
+            return item.pngPaths?.[raterName]?.annotatorFolder || "";
+        }
+
+        function buildPngObjectPath(item, raterName, fileName) {
+            const folder = getAnnotatorFolderFromItem(item, raterName);
+            if (!folder) return null;
+            return `${GCS_PNGS_ROOT}/${item.phase}/${folder}/${item.id}/${fileName}`;
+        }
+
+        function resolvePngObjectPath(item, raterName, fileHash, metric) {
+            const fileName = pngClipFileName(fileHash, metric);
+            const indexed = item.pngPaths?.[raterName];
+            if (indexed?.clips?.[fileHash]?.[metric]) {
+                return indexed.clips[fileHash][metric];
+            }
+            return buildPngClipObjectPath(item, raterName, fileHash, metric);
+        }
+
+        function resolvePngUrl(item, raterName, fileName) {
+            const parsed = parsePngClipFileName(fileName);
+            if (!parsed) return null;
+            const objectPath = resolvePngObjectPath(item, raterName, parsed.fileHash, parsed.metric);
+            if (!objectPath) return null;
+            if (!gcpAccessToken && objectPath.startsWith(`${GCS_PNGS_ROOT}/`)) {
+                return objectPath;
+            }
+            return buildGcsMediaUrl(objectPath);
+        }
+
+        function findClipEntryByZone(clipMap, zone) {
+            if (!clipMap) return null;
+            const entries = Object.entries(clipMap);
+            if (!zone) return entries[0] || null;
+            return entries.find(([, clip]) => clip.lungZone === zone) || null;
+        }
+
+        function clipMetricValue(clip, metric) {
+            if (!clip) return null;
+            if (metric === "pleura") return clip.percentPleura ?? null;
+            if (metric === "discrete") return clip.discreteBLines ?? null;
+            if (metric === "confluent") return clip.confluentBLines ?? null;
+            return null;
+        }
+
+        function clipMetricFrame(clip, metric) {
+            if (!clip) return null;
+            if (metric === "pleura") return clip.pleuraFrame ?? null;
+            if (metric === "discrete") return clip.discreteFrame ?? null;
+            if (metric === "confluent") return clip.confluentFrame ?? null;
+            return null;
+        }
+
+        function buildPngCompareRows(item, metric, zoneFilter) {
+            const zones = zoneFilter ? [zoneFilter] : LUNG_ZONE_ORDER;
+
+            return zones.map(zone => {
+                const entryA = findClipEntryByZone(item.clipScores?.[raterAName] || {}, zone);
+                const entryB = findClipEntryByZone(item.clipScores?.[raterBName] || {}, zone);
+
+                let pathA = null;
+                let valueA = null;
+                let frameA = null;
+                if (entryA) {
+                    const [fileHashA, clipA] = entryA;
+                    pathA = resolvePngObjectPath(item, raterAName, fileHashA, metric);
+                    valueA = clipMetricValue(clipA, metric);
+                    frameA = clipMetricFrame(clipA, metric);
+                }
+
+                let pathB = null;
+                let valueB = null;
+                let frameB = null;
+                if (entryB) {
+                    const [fileHashB, clipB] = entryB;
+                    pathB = resolvePngObjectPath(item, raterBName, fileHashB, metric);
+                    valueB = clipMetricValue(clipB, metric);
+                    frameB = clipMetricFrame(clipB, metric);
+                }
+
+                return { zone, pathA, valueA, frameA, pathB, valueB, frameB };
+            });
+        }
+
+        function buildPngMetricViewerUrl(item, metric, zoneOverride) {
+            const zoneFilter = zoneOverride !== undefined ? zoneOverride : (selectedZone || null);
+            const rows = buildPngCompareRows(item, metric, zoneFilter);
+            if (!rows.some(r => r.pathA || r.pathB)) {
+                return null;
+            }
+
+            const params = new URLSearchParams({
+                case: item.id,
+                phase: item.phase,
+                metric,
+                raterA: raterAName,
+                raterB: raterBName,
+                bucket: document.getElementById("gcpBucketNameInput").value.trim() || GCS_BUCKET_NAME,
+                rows: JSON.stringify(rows)
+            });
+            if (gcpAccessToken) params.set("token", gcpAccessToken);
+            if (zoneFilter) params.set("zone", zoneFilter);
+
+            return `png_viewer.html?${params.toString()}`;
+        }
+
+        function buildOhifUrl(item, raterName, zone) {
+            const bucket = document.getElementById("gcpBucketNameInput").value;
+            const baseHost = document.getElementById("ohifBaseUrlInput").value.trim().replace(/\/$/, "");
+            const clipMap = filterClipMapByZone(item.clipScores?.[raterName], zone ?? selectedZone);
+            const firstClip = Object.values(clipMap)[0] || null;
+            const dicomPath = item.gcsPaths?.[raterName]?.dicomPath || `${GCS_ASSIGNMENTS_ROOT}/${item.phase}/${raterName}/${item.dicomFileName}`;
+            const jsonPath = firstClip?.jsonPath || item.gcsPaths?.[raterName]?.jsonPath || `${GCS_ASSIGNMENTS_ROOT}/${item.phase}/${raterName}/${item.id}.json`;
+
+            let dicomGcsUrl = `https://storage.googleapis.com/storage/v1/b/${bucket}/o/${encodeURIComponent(dicomPath)}?alt=media`;
+            let jsonGcsUrl = `https://storage.googleapis.com/storage/v1/b/${bucket}/o/${encodeURIComponent(jsonPath)}?alt=media`;
+            if (gcpAccessToken) {
+                dicomGcsUrl += `&access_token=${encodeURIComponent(gcpAccessToken)}`;
+                jsonGcsUrl += `&access_token=${encodeURIComponent(gcpAccessToken)}`;
+            }
+            return `${baseHost}?dicom=${encodeURIComponent(dicomGcsUrl)}&json=${encodeURIComponent(jsonGcsUrl)}`;
+        }
+
+        // ===================================================
+        // STATS COMPUTATION UTILITIES
+        // ===================================================
+        function computePearson(arr1, arr2) {
+            const n = arr1.length;
+            if (n < 2) return 0;
+            const mean1 = arr1.reduce((sum, v) => sum + v, 0) / n;
+            const mean2 = arr2.reduce((sum, v) => sum + v, 0) / n;
+            
+            let num = 0, d1 = 0, d2 = 0;
+            for (let i = 0; i < n; i++) {
+                const diff1 = arr1[i] - mean1;
+                const diff2 = arr2[i] - mean2;
+                num += diff1 * diff2;
+                d1 += diff1 * diff1;
+                d2 += diff2 * diff2;
+            }
+            if (d1 === 0 || d2 === 0) return 0;
+            return num / Math.sqrt(d1 * d2);
+        }
+
+        function computeCohensKappa(arr1, arr2, categories) {
+            const n = arr1.length;
+            if (n === 0) return 0;
+            
+            const catSize = categories.length;
+            const catMap = {};
+            categories.forEach((cat, idx) => { catMap[cat] = idx; });
+
+            // Create matrix
+            const matrix = Array(catSize).fill(0).map(() => Array(catSize).fill(0));
+            for (let i = 0; i < n; i++) {
+                const idx1 = catMap[arr1[i]];
+                const idx2 = catMap[arr2[i]];
+                if (idx1 !== undefined && idx2 !== undefined) {
+                    matrix[idx1][idx2]++;
+                }
+            }
+
+            // Observed agreement
+            let sumObserved = 0;
+            for (let i = 0; i < catSize; i++) {
+                sumObserved += matrix[i][i];
+            }
+            const Po = sumObserved / n;
+
+            // Expected agreement
+            const rowSums = Array(catSize).fill(0);
+            const colSums = Array(catSize).fill(0);
+            for (let i = 0; i < catSize; i++) {
+                for (let j = 0; j < catSize; j++) {
+                    rowSums[i] += matrix[i][j];
+                    colSums[j] += matrix[i][j];
+                }
+            }
+
+            let Pe = 0;
+            for (let i = 0; i < catSize; i++) {
+                Pe += (rowSums[i] / n) * (colSums[i] / n);
+            }
+
+            if (Pe === 1) return 1.0;
+            return (Po - Pe) / (1 - Pe);
+        }
+
+        function computeMAE(arr1, arr2) {
+            if (arr1.length === 0) return 0;
+            const sum = arr1.reduce((acc, v, idx) => acc + Math.abs(v - arr2[idx]), 0);
+            return sum / arr1.length;
+        }
+
+        // ===================================================
+        // MAIN PIPELINE RENDERING
+        // ===================================================
+        function updateUI() {
+            const workspace = document.getElementById("unlockedWorkspace");
+            const scopeLabel = document.getElementById("analysisScopeLabel");
+
+            if (!selectedPhase) {
+                workspace.classList.add("hidden");
+                scopeLabel.textContent = "Select a phase to begin analysis.";
+                return;
+            }
+
+            workspace.classList.remove("hidden");
+            rebuildZoneSelector();
+            const filtered = getFilteredCases();
+            const chartDataset = buildIrrChartDataset(filtered, selectedZone);
+            const matchedClipCount = chartDataset.length;
+            const metricLabel = selectedZone ? "" : " max";
+
+            const phaseLabel = formatPhaseLabel(selectedPhase);
+            const cohortLabel = dataSourceMode === "csv" ? GCS_STATS_ROOT : GCS_ASSIGNMENTS_ROOT;
+            const zoneLabel = selectedZone || "all zones (max)";
+            if (selectedPatientId) {
+                scopeLabel.textContent = `${cohortLabel} · ${phaseLabel} · Patient ${selectedPatientId} · ${zoneLabel} · ${matchedClipCount} matched clip pair(s)`;
+            } else {
+                scopeLabel.textContent = `${cohortLabel} · ${phaseLabel} · ${filtered.length} patient(s) · ${zoneLabel} · ${matchedClipCount} matched clip pairs`;
+            }
+
+            const pA = chartDataset.map(item => item.raterA.percentPleura);
+            const pB = chartDataset.map(item => item.raterB.percentPleura);
+            const dA = chartDataset.map(item => item.raterA.discreteBLines);
+            const dB = chartDataset.map(item => item.raterB.discreteBLines);
+            const cA = chartDataset.map(item => item.raterA.confluentBLines);
+            const cB = chartDataset.map(item => item.raterB.confluentBLines);
+
+            const pearson = computePearson(pA, pB);
+            const pleuraMAE = computeMAE(pA, pB);
+            const discreteKappa = computeCohensKappa(dA, dB, [0, 1, 2, 3, 4, 5, 6]);
+            const confluentKappa = computeCohensKappa(cA, cB, [0, 1, 2, 3]);
+
+            document.getElementById("pleuraStatBadge").textContent = chartDataset.length >= 2
+                ? `r = ${pearson.toFixed(3)} · MAE ${pleuraMAE.toFixed(1)}%`
+                : chartDataset.length === 1 ? `Δ ${Math.abs(pA[0] - pB[0])}%` : "r = —";
+            document.getElementById("discreteStatBadge").textContent = chartDataset.length >= 1
+                ? `κ = ${discreteKappa.toFixed(3)}`
+                : "κ = —";
+            document.getElementById("confluentStatBadge").textContent = chartDataset.length >= 1
+                ? `κ = ${confluentKappa.toFixed(3)}`
+                : "κ = —";
+
+            renderIrrChart("pleuraChart", "pleura", chartDataset, {
+                getA: item => item.raterA.percentPleura,
+                getB: item => item.raterB.percentPleura,
+                getFrameA: item => item.raterA.pleuraFrame,
+                getFrameB: item => item.raterB.pleuraFrame,
+                label: "Pleura %",
+                color: "#00b4d8",
+                axisMin: 0,
+                axisMax: 100
+            });
+            renderIrrChart("discreteChart", "discrete", chartDataset, {
+                getA: item => item.raterA.discreteBLines,
+                getB: item => item.raterB.discreteBLines,
+                getFrameA: item => item.raterA.discreteFrame,
+                getFrameB: item => item.raterB.discreteFrame,
+                label: "Discrete B-Lines",
+                color: "#9d4edf",
+                axisMin: 0,
+                axisMax: 6
+            });
+            renderIrrChart("confluentChart", "confluent", chartDataset, {
+                getA: item => item.raterA.confluentBLines,
+                getB: item => item.raterB.confluentBLines,
+                getFrameA: item => item.raterA.confluentFrame,
+                getFrameB: item => item.raterB.confluentFrame,
+                label: "Confluent B-Lines",
+                color: "#f59e0b",
+                axisMin: 0,
+                axisMax: 3
+            });
+
+            document.getElementById("thRaterA").textContent = raterAName;
+            document.getElementById("thRaterB").textContent = raterBName;
+
+            const tbody = document.getElementById("clinicalCaseTableBody");
+            if (!tbody) return;
+            tbody.innerHTML = "";
+
+            filtered.forEach(item => {
+                const { raterA: rA, raterB: rB } = getCaseMetricsForZone(item, selectedZone);
+
+                let pleuraDiff = 0;
+                let discreteDiff = 0;
+                let isDiscrepant = false;
+
+                if (rA && rB) {
+                    pleuraDiff = Math.abs(rA.percentPleura - rB.percentPleura);
+                    discreteDiff = Math.abs(rA.discreteBLines - rB.discreteBLines);
+                    isDiscrepant = pleuraDiff >= 15 || discreteDiff >= 2;
+                }
+
+                const tr = document.createElement("tr");
+                tr.className = `border-b border-borderClr/40 transition-all hover:bg-slate-800/40 ${isDiscrepant ? 'bg-amber-950/5' : ''}`;
+
+                const fmtMetrics = (r) => r ? `
+                    <div class="space-y-0.5">
+                        <div><span class="text-white font-bold">${r.percentPleura}%</span> <span class="text-slate-500">pleura${metricLabel}</span></div>
+                        <div><span class="text-slate-300">${r.discreteBLines}</span> <span class="text-slate-500">disc${metricLabel}</span> · <span class="text-slate-300">${r.confluentBLines}</span> <span class="text-slate-500">conf${metricLabel}</span></div>
+                    </div>
+                ` : `<span class="text-slate-600 italic">—</span>`;
+
+                const diffCol = (rA && rB) ? `
+                    <span class="inline-block px-1.5 py-0.5 rounded text-[10px] ${pleuraDiff >= 15 ? 'bg-amber-950 text-amber-400 border border-amber-800/50' : 'bg-slate-900 text-slate-400'}">ΔP ${pleuraDiff}%</span>
+                    <span class="inline-block px-1.5 py-0.5 rounded text-[10px] ${discreteDiff >= 2 ? 'bg-amber-950 text-amber-400 border border-amber-800/50' : 'bg-slate-900 text-slate-400'}">ΔB ${discreteDiff}</span>
+                ` : `<span class="text-slate-600 text-[10px]">—</span>`;
+
+                const frameLinks = [];
+                [
+                    { key: "pleura", label: "Pleura", cls: "text-cyan-400 border-brandTeal/30" },
+                    { key: "discrete", label: "Discrete", cls: "text-purple-400 border-purple-800/30" },
+                    { key: "confluent", label: "Confluent", cls: "text-amber-400 border-amber-800/30" }
+                ].forEach(({ key, label, cls }) => {
+                    const url = buildPngMetricViewerUrl(item, key);
+                    if (url) {
+                        frameLinks.push(`<a href="${url}" target="_blank" rel="noopener" class="inline-block px-2 py-1 bg-[#10242e] hover:bg-slate-800 rounded text-[10px] ${cls} border mr-1 mb-1">${label}</a>`);
+                    }
+                });
+
+                tr.innerHTML = `
+                    <td class="py-3 px-4 font-bold text-slate-200">${item.id}</td>
+                    <td class="py-3 px-4">${fmtMetrics(rA)}</td>
+                    <td class="py-3 px-4">${fmtMetrics(rB)}</td>
+                    <td class="py-3 px-4 text-center">${diffCol}</td>
+                    <td class="py-3 px-4 text-right">${frameLinks.join('') || '<span class="text-slate-600">—</span>'}</td>
+                `;
+                tbody.appendChild(tr);
+            });
+
+            const countEl = document.getElementById("tableOutputTotalCount");
+            if (countEl) countEl.textContent = `${filtered.length} case(s) in view`;
+        }
+
+        // ===================================================
+        // APACHE ECHARTS BUILDERS
+        // ===================================================
+        function attachIrrChartClickHandler(instance, key, pairedData) {
+            instance.off("click");
+            instance.on("click", params => {
+                if (params.componentType !== "series") return;
+                if (params.seriesType !== "scatter" && params.seriesType !== "bar") return;
+                if (params.seriesIndex !== 0) return;
+                const chartItem = pairedData.length === 1
+                    ? pairedData[0]
+                    : pairedData[params.dataIndex];
+                if (!chartItem) return;
+                openPngMetricViewerFromChart(chartItem, key);
+            });
+        }
+
+        function buildIrrChartTooltip({ trigger, formatter }) {
+            return {
+                trigger,
+                formatter,
+                confine: true,
+                appendToBody: true,
+                backgroundColor: "rgba(15, 23, 42, 0.96)",
+                borderColor: "#334155",
+                borderWidth: 1,
+                padding: [8, 10],
+                textStyle: { color: "#e2e8f0", fontSize: 11, fontFamily: "ui-monospace, monospace" },
+                extraCssText: "max-width: min(320px, 90vw); white-space: normal; word-break: break-word; pointer-events: none;",
+                position(point, params, dom, rect, size) {
+                    const margin = 10;
+                    const offset = 12;
+                    const tipW = size.contentSize[0];
+                    const tipH = size.contentSize[1];
+                    const viewW = size.viewSize[0];
+                    const viewH = size.viewSize[1];
+                    let x = point[0] + offset;
+                    let y = point[1] + offset;
+                    if (x + tipW > viewW - margin) x = point[0] - tipW - offset;
+                    if (y + tipH > viewH - margin) y = point[1] - tipH - offset;
+                    x = Math.max(margin, Math.min(x, viewW - tipW - margin));
+                    y = Math.max(margin, Math.min(y, viewH - tipH - margin));
+                    return [x, y];
+                }
+            };
+        }
+
+        function renderIrrChart(domId, key, pairedData, config) {
+            const chartDom = document.getElementById(domId);
+            if (!chartDom) return;
+
+            if (!chartInstances[key]) {
+                chartInstances[key] = echarts.init(chartDom, 'dark', { renderer: 'canvas' });
+            }
+            const instance = chartInstances[key];
+
+            if (pairedData.length === 0) {
+                instance.off("click");
+                instance.setOption({
+                    backgroundColor: 'transparent',
+                    title: { text: 'No paired data', left: 'center', top: 'middle', textStyle: { color: '#64748b', fontSize: 12 } },
+                    xAxis: { show: false }, yAxis: { show: false }, series: []
+                }, true);
+                return;
+            }
+
+            const { getA, getB, getFrameA, getFrameB, label, color, axisMin, axisMax } = config;
+            const pngHint = '<br/><span style="color:#64748b">Click to compare PNGs</span>';
+
+            if (pairedData.length === 1) {
+                const item = pairedData[0];
+                const valA = getA(item);
+                const valB = getB(item);
+                instance.setOption({
+                    backgroundColor: 'transparent',
+                    tooltip: buildIrrChartTooltip({
+                        trigger: 'axis',
+                        formatter: () => `<div class="font-mono text-xs">
+                            <strong>${item.id}</strong><br/>
+                            ${raterAName}: ${valA}${formatFrameSuffix(getFrameA(item))}<br/>
+                            ${raterBName}: ${valB}${formatFrameSuffix(getFrameB(item))}
+                            ${pngHint}
+                        </div>`
+                    }),
+                    xAxis: {
+                        type: 'category',
+                        data: [raterAName, raterBName],
+                        axisLabel: { color: '#94a3b8', fontSize: 10, interval: 0 }
+                    },
+                    yAxis: {
+                        type: 'value',
+                        name: label,
+                        min: axisMin,
+                        max: axisMax,
+                        nameTextStyle: { color: '#64748b', fontSize: 10 },
+                        axisLabel: { color: '#64748b', fontSize: 10 },
+                        splitLine: { lineStyle: { color: '#1e293b' } }
+                    },
+                    series: [{
+                        type: 'bar',
+                        data: [
+                            { value: valA, itemStyle: { color } },
+                            { value: valB, itemStyle: { color: '#64748b' } }
+                        ],
+                        barWidth: '40%',
+                        cursor: 'pointer'
+                    }],
+                    grid: { left: '14%', right: '8%', bottom: '18%', top: '12%' }
+                }, true);
+                attachIrrChartClickHandler(instance, key, pairedData);
+                return;
+            }
+
+            const points = pairedData.map(item => [
+                getA(item),
+                getB(item),
+                item.id,
+                getFrameA(item),
+                getFrameB(item)
+            ]);
+            instance.setOption({
+                backgroundColor: 'transparent',
+                tooltip: buildIrrChartTooltip({
+                    trigger: 'item',
+                    formatter: params => `<div class="font-mono text-xs">
+                        <strong>${params.data[2]}</strong><br/>
+                        ${raterAName}: ${params.data[0]}${formatFrameSuffix(params.data[3])}<br/>
+                        ${raterBName}: ${params.data[1]}${formatFrameSuffix(params.data[4])}
+                        ${pngHint}
+                    </div>`
+                }),
+                xAxis: {
+                    type: 'value',
+                    name: raterAName,
+                    nameLocation: 'middle',
+                    nameGap: 22,
+                    min: axisMin,
+                    max: axisMax,
+                    nameTextStyle: { color: '#64748b', fontSize: 10 },
+                    axisLabel: { color: '#64748b', fontSize: 10 },
+                    splitLine: { show: false }
+                },
+                yAxis: {
+                    type: 'value',
+                    name: raterBName,
+                    nameLocation: 'middle',
+                    nameGap: 28,
+                    min: axisMin,
+                    max: axisMax,
+                    nameTextStyle: { color: '#64748b', fontSize: 10 },
+                    axisLabel: { color: '#64748b', fontSize: 10 },
+                    splitLine: { show: false }
+                },
+                series: [
+                    {
+                        type: 'scatter',
+                        data: points,
+                        symbolSize: 9,
+                        cursor: 'pointer',
+                        itemStyle: { color, shadowBlur: 4, shadowColor: color + '66' }
+                    },
+                    {
+                        type: 'line',
+                        data: [[axisMin, axisMin], [axisMax, axisMax]],
+                        showSymbol: false,
+                        lineStyle: { color: '#e2e8f0', type: 'dashed', opacity: 0.35 },
+                        silent: true
+                    }
+                ],
+                grid: { left: '16%', right: '8%', bottom: '16%', top: '10%' }
+            }, true);
+            attachIrrChartClickHandler(instance, key, pairedData);
+        }
+
+        function syncDataSourceSelects(value) {
+            dataSourceMode = value;
+            const mainSelect = document.getElementById("dataSourceSelect");
+            const lockSelect = document.getElementById("lockDataSourceSelect");
+            if (mainSelect) mainSelect.value = value;
+            if (lockSelect) lockSelect.value = value;
+        }
+
+        async function handleDataSourceChange(value) {
+            syncDataSourceSelects(value);
+            selectedPhase = "";
+            selectedPatientId = "";
+            selectedZone = "";
+            setControlsForDatasetReady(false);
+            document.getElementById("analysisScopeLabel").textContent = value
+                ? "Loading data..."
+                : "Select a data source, then choose a phase to begin analysis.";
+
+            if (!value) return;
+
+            if (gcpAccessToken) {
+                const bucket = document.getElementById("gcpBucketNameInput").value.trim() || GCS_BUCKET_NAME.trim();
+                await loadDashboardData(bucket, gcpAccessToken, ALLOWED_EMAIL_DOMAIN.trim());
+            } else {
+                document.getElementById("analysisScopeLabel").textContent = "Data source selected. Sign in or use demo mode to load stats.";
+            }
+        }
+
+        function resizeCharts() {
+            Object.values(chartInstances).forEach(inst => inst && inst.resize());
+        }
+
+        // ===================================================
+        // CSV STATS PIPELINE
+        // ===================================================
+        function parseCsv(text) {
+            const rows = [];
+            let row = [];
+            let field = "";
+            let inQuotes = false;
+
+            for (let i = 0; i < text.length; i++) {
+                const c = text[i];
+                if (inQuotes) {
+                    if (c === '"') {
+                        if (text[i + 1] === '"') {
+                            field += '"';
+                            i++;
+                        } else {
+                            inQuotes = false;
+                        }
+                    } else {
+                        field += c;
+                    }
+                } else if (c === '"') {
+                    inQuotes = true;
+                } else if (c === ",") {
+                    row.push(field);
+                    field = "";
+                } else if (c === "\n" || (c === "\r" && text[i + 1] === "\n")) {
+                    row.push(field);
+                    if (row.length > 1 || row[0] !== "") rows.push(row);
+                    row = [];
+                    field = "";
+                    if (c === "\r") i++;
+                } else if (c !== "\r") {
+                    field += c;
+                }
+            }
+
+            if (field.length || row.length) {
+                row.push(field);
+                rows.push(row);
+            }
+
+            if (!rows.length) return [];
+            const headers = rows[0];
+            return rows.slice(1).map(cells => {
+                const obj = {};
+                headers.forEach((header, idx) => {
+                    obj[header] = cells[idx] ?? "";
+                });
+                return obj;
+            });
+        }
+
+        function csvNum(value) {
+            if (value === "" || value === undefined || value === null) return null;
+            const n = Number(value);
+            return Number.isNaN(n) ? null : n;
+        }
+
+        function csvPhaseToDashboardPhase(phaseValue) {
+            const raw = String(phaseValue ?? "").trim();
+            if (!raw) return "";
+            return /^phase[-_]/i.test(raw) ? raw.toLowerCase() : `phase-${raw}`;
+        }
+
+        function buildIrrLookup(irrRows) {
+            if (!irrRows.length) return { lookup: {}, raters: [] };
+
+            const headers = Object.keys(irrRows[0]);
+            const raters = headers
+                .filter(h => h.endsWith("_percent_pleura"))
+                .map(h => h.slice(0, -"_percent_pleura".length));
+
+            const lookup = {};
+            irrRows.forEach(row => {
+                const key = `${row.case_id}|${row.lung_zone}|${row.original_prefix}`;
+                lookup[key] = {};
+                raters.forEach(rater => {
+                    const readNum = suffix => csvNum(row[`${rater}_${suffix}`]);
+                    lookup[key][rater] = {
+                        percentPleura: readNum("percent_pleura") ?? 0,
+                        pleuraFrame: row[`${rater}_percent_pleura_frame`] || null,
+                        discreteBLines: readNum("discrete_count") ?? 0,
+                        discreteFrame: row[`${rater}_discrete_count_frame`] || null,
+                        confluentBLines: readNum("confluent_count") ?? 0,
+                        confluentFrame: row[`${rater}_confluent_count_frame`] || null
+                    };
+                });
+            });
+
+            return { lookup, raters };
+        }
+
+        function buildGcsPathIndex(allItems) {
+            const index = {};
+            allItems.forEach(item => {
+                if (!isUnderAssignmentsRoot(item.name)) return;
+                const parsed = parseGcsObjectPath(item.name);
+                if (!parsed) return;
+
+                const { phase, raterName, caseId, filename, isJson, isDicom } = parsed;
+                const raterKey = `${phase}_${caseId}_${raterName}`;
+                if (!index[raterKey]) index[raterKey] = { jsonByHash: {}, dicomPath: null, annotatorFolder: null };
+
+                const parts = item.name.split("/").filter(Boolean);
+                const rootIdx = parts.findIndex(p => p.toLowerCase() === GCS_ASSIGNMENTS_ROOT.toLowerCase());
+                if (rootIdx >= 0 && parts.length > rootIdx + 2) {
+                    index[raterKey].annotatorFolder = parts[rootIdx + 2];
+                }
+
+                if (isJson) {
+                    const fileHash = filename.split(".")[0];
+                    index[raterKey].jsonByHash[fileHash] = item.name;
+                }
+                if (isDicom) {
+                    index[raterKey].dicomPath = item.name;
+                }
+            });
+            return index;
+        }
+
+        function buildPngPathIndex(allItems) {
+            const index = {};
+            allItems.forEach(item => {
+                const normalized = item.name.replace(/^\/+/, "");
+                if (!normalized.startsWith(`${GCS_PNGS_ROOT}/`)) return;
+
+                const parts = normalized.split("/").filter(Boolean);
+                if (parts.length < 5) return;
+
+                const phase = parts[1].toLowerCase();
+                const annotatorFolder = parts[2];
+                const caseId = parts[3].toLowerCase();
+                const fileName = parts[4];
+                const raterName = extractRaterFromAnnotatorFolder(annotatorFolder);
+                const raterKey = `${phase}_${caseId}_${raterName}`;
+
+                if (!index[raterKey]) {
+                    index[raterKey] = { grids: {}, clips: {}, annotatorFolder };
+                }
+
+                if (fileName.startsWith("grid_") && fileName.endsWith(".png")) {
+                    const metric = fileName.slice(5, -4);
+                    index[raterKey].grids[metric] = normalized;
+                } else {
+                    const parsed = parsePngClipFileName(fileName);
+                    if (parsed) {
+                        const { fileHash, metric } = parsed;
+                        if (!index[raterKey].clips[fileHash]) index[raterKey].clips[fileHash] = {};
+                        index[raterKey].clips[fileHash][metric] = normalized;
+                    }
+                }
+            });
+            return index;
+        }
+
+        function applyPngPathIndexToCases(pngIndex) {
+            Object.values(globalCasesMap).forEach(caseObj => {
+                if (!caseObj.pngPaths) caseObj.pngPaths = {};
+                if (!caseObj.annotatorFolders) caseObj.annotatorFolders = {};
+
+                Object.keys(caseObj.clipScores || {}).forEach(rater => {
+                    const key = `${caseObj.phase}_${caseObj.id}_${rater}`;
+                    const entry = pngIndex[key];
+                    if (!entry) return;
+                    caseObj.pngPaths[rater] = { grids: entry.grids, clips: entry.clips };
+                    caseObj.annotatorFolders[rater] = entry.annotatorFolder;
+                });
+            });
+        }
+
+        function buildCasesMapFromStatsCsv(clipRows, irrRows, pathIndex) {
+            globalCasesMap = {};
+            const { lookup: irrLookup } = buildIrrLookup(irrRows);
+            const raterNamesSet = new Set();
+            const phasesSet = new Set();
+
+            clipRows.forEach(row => {
+                const rater = (row.rater || "").trim().toLowerCase();
+                const fileHash = (row.file_hash || "").trim();
+                if (!rater || !fileHash) return;
+
+                raterNamesSet.add(rater);
+                const phase = csvPhaseToDashboardPhase(row.phase);
+                if (!phase) return;
+                phasesSet.add(phase);
+
+                const caseId = (row.directory_hash || row.case_id || "").trim().toLowerCase();
+                if (!caseId) return;
+
+                const lungZone = row.lung_zone || "";
+                const irrKey = `${row.case_id}|${lungZone}|${row.original_prefix}`;
+                const irrMetrics = irrLookup[irrKey]?.[rater];
+                const metrics = irrMetrics || {
+                    percentPleura: csvNum(row.max_pleura_pct) ?? 0,
+                    pleuraFrame: null,
+                    discreteBLines: csvNum(row.max_discrete_blines) ?? 0,
+                    discreteFrame: null,
+                    confluentBLines: csvNum(row.max_confluent_blines) ?? 0,
+                    confluentFrame: null
+                };
+
+                const key = `${phase}_${caseId}`;
+                if (!globalCasesMap[key]) {
+                    globalCasesMap[key] = {
+                        id: caseId,
+                        phase,
+                        displayCaseId: row.case_id || caseId,
+                        dicomFileName: "",
+                        annotations: {},
+                        clipScores: {},
+                        gcsPaths: {}
+                    };
+                }
+
+                const pathEntry = pathIndex?.[`${phase}_${caseId}_${rater}`];
+                if (!globalCasesMap[key].clipScores[rater]) globalCasesMap[key].clipScores[rater] = {};
+                globalCasesMap[key].clipScores[rater][fileHash] = {
+                    ...metrics,
+                    lungZone,
+                    jsonPath: pathEntry?.jsonByHash?.[fileHash] || ""
+                };
+
+                if (pathEntry) {
+                    if (!globalCasesMap[key].gcsPaths[rater]) globalCasesMap[key].gcsPaths[rater] = {};
+                    if (pathEntry.dicomPath) {
+                        globalCasesMap[key].gcsPaths[rater].dicomPath = pathEntry.dicomPath;
+                        globalCasesMap[key].dicomFileName = pathEntry.dicomPath.split("/").pop();
+                    }
+                    if (pathEntry.jsonByHash[fileHash]) {
+                        globalCasesMap[key].gcsPaths[rater].jsonPath = pathEntry.jsonByHash[fileHash];
+                    }
+                    if (pathEntry.annotatorFolder) {
+                        if (!globalCasesMap[key].annotatorFolders) globalCasesMap[key].annotatorFolders = {};
+                        globalCasesMap[key].annotatorFolders[rater] = pathEntry.annotatorFolder;
+                    }
+                }
+            });
+
+            Object.values(globalCasesMap).forEach(caseObj => {
+                Object.entries(caseObj.clipScores).forEach(([rater, clips]) => {
+                    caseObj.annotations[rater] = summarizeClipScores(clips);
+                });
+            });
+
+            discoveredRaters = Array.from(raterNamesSet).sort();
+            discoveredPhases = Array.from(phasesSet).sort((a, b) => {
+                const diff = parsePhaseNumber(a) - parsePhaseNumber(b);
+                return diff || a.localeCompare(b);
+            });
+            raterAName = discoveredRaters[0] || "Rater_A";
+            raterBName = discoveredRaters[1] || "Rater_B";
+            mapDatasetForRaters();
+        }
+
+        function setControlsForDatasetReady(ready) {
+            isDatasetReady = ready;
+            const phaseSelect = document.getElementById("phaseSelect");
+            if (phaseSelect) phaseSelect.disabled = !ready;
+            if (!ready) {
+                selectedPhase = "";
+                selectedPatientId = "";
+                selectedZone = "";
+                if (phaseSelect) phaseSelect.value = "";
+                document.getElementById("patientSelect").disabled = true;
+                document.getElementById("zoneSelect").disabled = true;
+                document.getElementById("unlockedWorkspace").classList.add("hidden");
+            }
+        }
+
+        function finalizeDatasetLoad(bucket) {
+            appendLog("Data mapping complete.", "success");
+
+            const ping = document.getElementById("gcsConnectionStatusPing");
+            ping.innerHTML = `<span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                              <span class="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>`;
+            document.getElementById("gcsStatusText").innerHTML = `Live GCS: <strong class='text-emerald-400'>gs://${bucket}</strong>`;
+            document.getElementById("pacsConnectionModeBadge").className = "text-[10px] tracking-wider uppercase text-emerald-400 font-bold bg-emerald-950/60 px-2 py-0.5 rounded border border-emerald-800/50";
+            document.getElementById("pacsConnectionModeBadge").innerText = dataSourceMode === "csv" ? "GCS Stats CSV" : "GCS Cloud";
+
+            document.getElementById("gcpBucketNameInput").value = bucket;
+            document.getElementById("btnResyncActiveSession").classList.remove("hidden");
+
+            setControlsForDatasetReady(true);
+            updateRatersDropdowns();
+            rebuildPhaseSelector();
+            document.getElementById("loginLockOverlay").classList.add("hidden");
+
+            if (discoveredPhases.length > 0 && !selectedPhase) {
+                selectedPhase = discoveredPhases[0];
+                document.getElementById("phaseSelect").value = selectedPhase;
+                rebuildPatientSelector();
+                updateUI();
+            } else {
+                updateUI();
+            }
+        }
+
+        async function fetchGcsTextFile(bucket, token, objectPath) {
+            const fileUrl = `https://storage.googleapis.com/storage/v1/b/${bucket}/o/${encodeURIComponent(objectPath)}?alt=media`;
+            const res = await fetch(fileUrl, {
+                headers: { Authorization: `Bearer ${token}` }
+            });
+            if (!res.ok) {
+                throw new Error(`Failed to fetch gs://${bucket}/${objectPath} (${res.status})`);
+            }
+            return res.text();
+        }
+
+        async function listGcsBucketObjects(bucket, token, prefix) {
+            const allItems = [];
+            let pageToken = null;
+            do {
+                let listUrl = `https://storage.googleapis.com/storage/v1/b/${bucket}/o?projection=noAcl&maxResults=1000&prefix=${encodeURIComponent(prefix)}`;
+                if (pageToken) listUrl += `&pageToken=${encodeURIComponent(pageToken)}`;
+                const listResponse = await fetch(listUrl, {
+                    headers: { Authorization: `Bearer ${token}` }
+                });
+
+                if (!listResponse.ok) {
+                    if (listResponse.status === 403) {
+                        throw new Error("Access Denied (403): Your account has no IAM read access to this private bucket.");
+                    }
+                    throw new Error(`GCS List API failed with status ${listResponse.status}`);
+                }
+
+                const page = await listResponse.json();
+                if (page.items) allItems.push(...page.items);
+                pageToken = page.nextPageToken || null;
+            } while (pageToken);
+
+            return allItems;
+        }
+
+        async function validateGcpSession(token, allowedDomain) {
+            const profileRes = await fetch("https://www.googleapis.com/oauth2/v3/userinfo", {
+                headers: { Authorization: `Bearer ${token}` }
+            });
+
+            if (!profileRes.ok) return;
+
+            const profile = await profileRes.json();
+            const email = profile.email;
+            appendLog(`Active Google Identity Session: ${email}`, "success");
+
+            document.getElementById("userProfileIndicator").classList.remove("hidden");
+            document.getElementById("userProfileIndicator").classList.add("flex");
+
+            if (allowedDomain && !email.toLowerCase().endsWith(allowedDomain.toLowerCase())) {
+                throw new Error(`Unauthorized: Your logged-in Google account email does not match domain scope "${allowedDomain}".`);
+            }
+        }
+
+        async function loadLocalStatsCsv() {
+            appendLog("Loading local stats CSV files...", "info");
+            const [clipText, irrText] = await Promise.all([
+                fetch("stats/annotations_by_clip.csv").then(res => {
+                    if (!res.ok) throw new Error("Could not load stats/annotations_by_clip.csv");
+                    return res.text();
+                }),
+                fetch("stats/irr_data.csv").then(res => {
+                    if (!res.ok) throw new Error("Could not load stats/irr_data.csv");
+                    return res.text();
+                })
+            ]);
+
+            buildCasesMapFromStatsCsv(parseCsv(clipText), parseCsv(irrText), null);
+            setControlsForDatasetReady(true);
+            updateRatersDropdowns();
+            rebuildPhaseSelector();
+
+            const ping = document.getElementById("gcsConnectionStatusPing");
+            ping.innerHTML = `<span class="relative inline-flex rounded-full h-2 w-2 bg-amber-500"></span>`;
+            document.getElementById("gcsStatusText").innerHTML = "Offline: <strong class='text-amber-400'>Local stats CSV</strong>";
+            document.getElementById("pacsConnectionModeBadge").innerText = "Stats CSV";
+
+            if (discoveredPhases.length > 0 && !selectedPhase) {
+                selectedPhase = discoveredPhases[0];
+                document.getElementById("phaseSelect").value = selectedPhase;
+                rebuildPatientSelector();
+                updateUI();
+            } else {
+                updateUI();
+            }
+        }
+
+        async function fetchStatsCsvFromBucket(bucket, token, allowedDomain) {
+            appendLog(`Loading pre-computed stats from gs://${bucket}/${GCS_STATS_ROOT}/`, "info");
+            document.getElementById("gcsStatusText").innerHTML = "Syncing: <strong class='text-cyan-400'>Loading stats CSV</strong>";
+
+            try {
+                await validateGcpSession(token, allowedDomain);
+
+                const [clipText, irrText, assignmentItems, pngItems] = await Promise.all([
+                    fetchGcsTextFile(bucket, token, `${GCS_STATS_ROOT}/annotations_by_clip.csv`),
+                    fetchGcsTextFile(bucket, token, `${GCS_STATS_ROOT}/irr_data.csv`),
+                    listGcsBucketObjects(bucket, token, `${GCS_ASSIGNMENTS_ROOT}/`),
+                    listGcsBucketObjects(bucket, token, `${GCS_PNGS_ROOT}/`)
+                ]);
+
+                if (!assignmentItems.length) {
+                    appendLog("No assignment objects listed; frame PNG paths may use convention only.", "info");
+                }
+
+                const pathIndex = buildGcsPathIndex(assignmentItems);
+                buildCasesMapFromStatsCsv(parseCsv(clipText), parseCsv(irrText), pathIndex);
+                applyPngPathIndexToCases(buildPngPathIndex(pngItems));
+                appendLog(`Indexed ${pngItems.length} PNG object(s) from gs://${bucket}/${GCS_PNGS_ROOT}/`, "info");
+
+                if (!discoveredPhases.length) {
+                    throw new Error(`No cases found in gs://${bucket}/${GCS_STATS_ROOT}/annotations_by_clip.csv`);
+                }
+
+                appendLog(`Loaded ${Object.keys(globalCasesMap).length} cases from stats CSV.`, "success");
+                finalizeDatasetLoad(bucket);
+            } catch (err) {
+                setControlsForDatasetReady(false);
+                appendLog(`Stats CSV load failed: ${err.message}`, "error");
+                const shortError = err.message.length > 60 ? `${err.message.slice(0, 57)}...` : err.message;
+                document.getElementById("gcsStatusText").innerHTML = `Failed: <strong class='text-rose-500' title="${err.message}">${shortError}</strong>`;
+                const ping = document.getElementById("gcsConnectionStatusPing");
+                ping.innerHTML = `<span class="relative inline-flex rounded-full h-2 w-2 bg-rose-500"></span>`;
+
+                const errBox = document.getElementById("lockGateErrorMessage");
+                errBox.innerText = `Load Failed: ${err.message}`;
+                errBox.classList.remove("hidden");
+                document.getElementById("loginLockOverlay").classList.remove("hidden");
+            }
+        }
+
+        async function loadDashboardData(bucket, token, allowedDomain) {
+            if (!dataSourceMode) {
+                appendLog("Select a data source before loading.", "info");
+                document.getElementById("analysisScopeLabel").textContent = "Select a data source, then choose a phase to begin analysis.";
+                return;
+            }
+
+            setControlsForDatasetReady(false);
+
+            if (dataSourceMode === "csv") {
+                await fetchStatsCsvFromBucket(bucket, token, allowedDomain);
+            } else {
+                await fetchComputedAnnotations(bucket, token, allowedDomain);
+            }
+        }
+
+        // ===================================================
+        // GCP STORAGE BUCKET LIVE CONNECTOR (Batch Pipeline)
+        // ===================================================
+        async function fetchComputedAnnotations(bucket, token, allowedDomain) {
+            appendLog(`Initiating bucket fetch: gs://${bucket}/`, "info");
+            document.getElementById("gcsStatusText").innerHTML = "Syncing: <strong class='text-cyan-400'>Polling GCS API</strong>";
+
+            try {
+                await validateGcpSession(token, allowedDomain);
+
+                const allItems = await listGcsBucketObjects(bucket, token, `${GCS_ASSIGNMENTS_ROOT}/`);
+                if (allItems.length === 0) {
+                    throw new Error(`No files found under gs://${bucket}/${GCS_ASSIGNMENTS_ROOT}/`);
+                }
+
+                appendLog(`Listed ${allItems.length} objects under ${GCS_ASSIGNMENTS_ROOT}/.`, "success");
+
+                // Group files: completed-assignments-all / phase-N / annotator / case / clip.manual_lus_score.json
+                globalCasesMap = {};
+                const jsonFilesToFetch = [];
+                const raterNamesSet = new Set();
+                const phasesSet = new Set();
+
+                allItems.forEach(item => {
+                    if (!isUnderAssignmentsRoot(item.name)) return;
+                    const parsed = parseGcsObjectPath(item.name);
+                    if (!parsed) return;
+
+                    const { phase, raterName, caseId, filename, isJson, isDicom } = parsed;
+                    phasesSet.add(phase);
+
+                    const key = `${phase}_${caseId}`;
+                    if (!globalCasesMap[key]) {
+                        globalCasesMap[key] = {
+                            id: caseId,
+                            phase: phase,
+                            dicomFileName: filename,
+                            annotations: {},
+                            clipScores: {},
+                            gcsPaths: {},
+                            annotatorFolders: {}
+                        };
+                    }
+
+                    const pathParts = item.name.split("/").filter(Boolean);
+                    const rootIdx = pathParts.findIndex(p => p.toLowerCase() === GCS_ASSIGNMENTS_ROOT.toLowerCase());
+                    if (rootIdx >= 0 && pathParts.length > rootIdx + 2 && raterName) {
+                        globalCasesMap[key].annotatorFolders[raterName] = pathParts[rootIdx + 2];
+                    }
+
+                    if (isJson && raterName) {
+                        raterNamesSet.add(raterName);
+                        if (!globalCasesMap[key].gcsPaths[raterName]) {
+                            globalCasesMap[key].gcsPaths[raterName] = {};
+                        }
+                        globalCasesMap[key].gcsPaths[raterName].jsonPath = item.name;
+
+                        jsonFilesToFetch.push({
+                            key,
+                            rater: raterName,
+                            name: item.name
+                        });
+                    }
+
+                    if (isDicom && raterName) {
+                        raterNamesSet.add(raterName);
+                        if (!globalCasesMap[key].gcsPaths[raterName]) {
+                            globalCasesMap[key].gcsPaths[raterName] = {};
+                        }
+                        globalCasesMap[key].gcsPaths[raterName].dicomPath = item.name;
+                        globalCasesMap[key].dicomFileName = filename;
+                    }
+                });
+
+                if (jsonFilesToFetch.length === 0) {
+                    throw new Error("Successfully linked with GCS, but parsed no compatible rater JSON folders.");
+                }
+
+                appendLog(`Identified ${jsonFilesToFetch.length} rater json annotations to parse. Running batch downloads...`, "info");
+
+                // 4. Batch-fetch JSON contents concurrently using parallel fetch streams
+                const fetchPromises = jsonFilesToFetch.map(async (fileInfo) => {
+                    try {
+                        const fileUrl = `https://storage.googleapis.com/storage/v1/b/${bucket}/o/${encodeURIComponent(fileInfo.name)}?alt=media`;
+                        const res = await fetch(fileUrl, {
+                            headers: { 'Authorization': `Bearer ${token}` }
+                        });
+                        if (!res.ok) {
+                            console.error(`JSON fetch failed (${res.status}): ${fileInfo.name}`);
+                            return null;
+                        }
+                        const json = await res.json();
+                        const metrics = extractMetricsFromLusJson(json);
+                        const fileHash = json.file_hash || fileInfo.name.split('/').pop().split('.')[0];
+
+                        return {
+                            key: fileInfo.key,
+                            rater: fileInfo.rater,
+                            fileHash,
+                            lungZone: json.lung_zone || "",
+                            jsonPath: fileInfo.name,
+                            metrics
+                        };
+                    } catch (e) {
+                        console.error(`Error loading file: ${fileInfo.name}`, e);
+                        return null;
+                    }
+                });
+
+                const fetchedResults = await Promise.all(fetchPromises);
+
+                // 5. Store per-clip scores keyed by file_hash; case summary = max across clip scores
+                fetchedResults.forEach(res => {
+                    if (!res) return;
+                    const caseObj = globalCasesMap[res.key];
+                    if (!caseObj) return;
+
+                    if (!caseObj.clipScores[res.rater]) caseObj.clipScores[res.rater] = {};
+                    caseObj.clipScores[res.rater][res.fileHash] = {
+                        ...res.metrics,
+                        lungZone: res.lungZone,
+                        jsonPath: res.jsonPath
+                    };
+
+                    if (!caseObj.gcsPaths[res.rater]) caseObj.gcsPaths[res.rater] = {};
+                    caseObj.gcsPaths[res.rater].jsonPath = res.jsonPath;
+                });
+
+                Object.values(globalCasesMap).forEach(caseObj => {
+                    Object.entries(caseObj.clipScores).forEach(([rater, clips]) => {
+                        caseObj.annotations[rater] = summarizeClipScores(clips);
+                    });
+                });
+
+                const pngItems = await listGcsBucketObjects(bucket, token, `${GCS_PNGS_ROOT}/`);
+                applyPngPathIndexToCases(buildPngPathIndex(pngItems));
+                appendLog(`Indexed ${pngItems.length} PNG object(s) from gs://${bucket}/${GCS_PNGS_ROOT}/`, "info");
+
+                discoveredRaters = Array.from(raterNamesSet).sort();
+                discoveredPhases = Array.from(phasesSet).sort((a, b) => {
+                    const diff = parsePhaseNumber(a) - parsePhaseNumber(b);
+                    return diff || a.localeCompare(b);
+                });
+
+                raterAName = discoveredRaters[0] || "Rater_A";
+                raterBName = discoveredRaters[1] || "Rater_B";
+
+                mapDatasetForRaters();
+                finalizeDatasetLoad(bucket);
+
+            } catch (err) {
+                setControlsForDatasetReady(false);
+                appendLog(`Handshake Error: ${err.message}`, "error");
+                const shortError = err.message.length > 60 ? `${err.message.slice(0, 57)}...` : err.message;
+                document.getElementById("gcsStatusText").innerHTML = `Failed: <strong class='text-rose-500' title="${err.message}">${shortError}</strong>`;
+                const ping = document.getElementById("gcsConnectionStatusPing");
+                ping.innerHTML = `<span class="relative inline-flex rounded-full h-2 w-2 bg-rose-500"></span>`;
+                
+                const errBox = document.getElementById("lockGateErrorMessage");
+                errBox.innerText = `Authentication Failed: ${err.message}`;
+                errBox.classList.remove("hidden");
+                document.getElementById("loginLockOverlay").classList.remove("hidden");
+            }
+        }
+
+        // ===================================================
+        // DYNAMIC CONVERSION UTILITIES
+        // ===================================================
+        function updateRatersDropdowns() {
+            const containerA = document.getElementById("selectRaterAContainer");
+            const containerB = document.getElementById("selectRaterBContainer");
+            
+            if (!containerA || !containerB) return;
+            
+            if (discoveredRaters.length < 2) {
+                containerA.innerHTML = `<span class="text-slate-400 font-mono text-sm">${raterAName}</span>`;
+                containerB.innerHTML = `<span class="text-slate-400 font-mono text-sm">${raterBName}</span>`;
+                return;
+            }
+            
+            const selectClass = "w-full bg-[#181d24] border border-slate-700 rounded-lg px-3 py-2.5 text-sm text-slate-100 focus:outline-none focus:ring-1 focus:ring-brandTeal";
+            let htmlA = `<select id="selectRaterA" class="${selectClass}">`;
+            discoveredRaters.forEach(r => {
+                htmlA += `<option value="${r}" ${r === raterAName ? 'selected' : ''}>${r}</option>`;
+            });
+            htmlA += `</select>`;
+            containerA.innerHTML = htmlA;
+
+            let htmlB = `<select id="selectRaterB" class="${selectClass}">`;
+            discoveredRaters.forEach(r => {
+                htmlB += `<option value="${r}" ${r === raterBName ? 'selected' : ''}>${r}</option>`;
+            });
+            htmlB += `</select>`;
+            containerB.innerHTML = htmlB;
+
+            document.getElementById("selectRaterA").addEventListener("change", (e) => {
+                raterAName = e.target.value;
+                mapDatasetForRaters();
+                updateUI();
+            });
+            document.getElementById("selectRaterB").addEventListener("change", (e) => {
+                raterBName = e.target.value;
+                mapDatasetForRaters();
+                updateUI();
+            });
+        }
+
+        // ===================================================
+        // GOOGLE SIGN-IN HANDLER (GIS Client)
+        // ===================================================
+        function handleGoogleAuthorization() {
+            const clientId = GCP_CLIENT_ID.trim();
+            const bucket = GCS_BUCKET_NAME.trim();
+            const allowedDomain = ALLOWED_EMAIL_DOMAIN.trim();
+            const errBox = document.getElementById("lockGateErrorMessage");
+
+            if (!clientId || clientId.includes("YOUR_GOOGLE_CLIENT_ID")) {
+                errBox.innerText = "Error: Google Client ID is not configured. Please open index.html in a text editor and update the GCP_CLIENT_ID constant at the top of the <script> block.";
+                errBox.classList.remove("hidden");
+                return;
+            }
+
+            errBox.classList.add("hidden");
+            appendLog("Launching Google OAuth popup...", "info");
+
+            try {
+                googleTokenClient = google.accounts.oauth2.initTokenClient({
+                    client_id: clientId,
+                    scope: 'https://www.googleapis.com/auth/devstorage.read_only https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile',
+                    callback: (tokenResponse) => {
+                        if (tokenResponse && tokenResponse.access_token) {
+                            gcpAccessToken = tokenResponse.access_token;
+                            appendLog("OAuth authentication success. Fetching private data catalog.", "success");
+                            
+                            if (!dataSourceMode) {
+                                appendLog("Select a data source (JSON or CSV) to load stats.", "info");
+                                document.getElementById("loginLockOverlay").classList.add("hidden");
+                                document.getElementById("analysisScopeLabel").textContent = "Authenticated. Select a data source to load stats.";
+                                return;
+                            }
+
+                            loadDashboardData(bucket, gcpAccessToken, allowedDomain);
+                        } else {
+                            errBox.innerText = "Authorization failed. Token callback response invalid.";
+                            errBox.classList.remove("hidden");
+                        }
+                    },
+                    error_callback: (err) => {
+                        errBox.innerText = `OAuth Error: ${err.message || err}`;
+                        errBox.classList.remove("hidden");
+                    }
+                });
+
+                googleTokenClient.requestAccessToken({ prompt: 'consent' });
+
+            } catch (e) {
+                errBox.innerText = `Client SDK Failure: ${e.message}. Check script load blockers or Client ID formatting.`;
+                errBox.classList.remove("hidden");
+            }
+        }
+
+        // ===================================================
+        // EVENT INITIALIZATIONS & DEMO TRIGGERS
+        // ===================================================
+        window.addEventListener('load', () => {
+            // Set up configurations based on hardcoded constants
+            document.getElementById("lockGcsTargetLabel").innerText = `gs://${GCS_BUCKET_NAME}/{${GCS_ASSIGNMENTS_ROOT}, ${GCS_STATS_ROOT}, ${GCS_PNGS_ROOT}}/`;
+            document.getElementById("gcpBucketNameInput").value = GCS_BUCKET_NAME;
+
+            if (ALLOWED_EMAIL_DOMAIN) {
+                document.getElementById("lockGcsDomainLimitRow").classList.remove("hidden");
+                document.getElementById("lockGcsDomainLimitRow").classList.add("flex");
+                document.getElementById("lockGcsDomainLabel").innerText = ALLOWED_EMAIL_DOMAIN;
+            }
+
+            // Data source, phase & patient selectors
+            document.getElementById("dataSourceSelect").addEventListener("change", (e) => {
+                handleDataSourceChange(e.target.value);
+            });
+            document.getElementById("lockDataSourceSelect").addEventListener("change", (e) => {
+                handleDataSourceChange(e.target.value);
+            });
+
+            document.getElementById("phaseSelect").addEventListener("change", (e) => {
+                selectedPhase = e.target.value;
+                selectedPatientId = "";
+                selectedZone = "";
+                rebuildPatientSelector();
+                updateUI();
+            });
+
+            document.getElementById("patientSelect").addEventListener("change", (e) => {
+                selectedPatientId = e.target.value;
+                selectedZone = "";
+                updateUI();
+            });
+
+            document.getElementById("zoneSelect").addEventListener("change", (e) => {
+                selectedZone = e.target.value;
+                updateUI();
+            });
+
+            // Resync Active GCS Session
+            document.getElementById("btnResyncActiveSession").addEventListener('click', () => {
+                if (gcpAccessToken && dataSourceMode) {
+                    const bucket = document.getElementById("gcpBucketNameInput").value.trim();
+                    loadDashboardData(bucket, gcpAccessToken, ALLOWED_EMAIL_DOMAIN.trim());
+                } else if (!dataSourceMode) {
+                    appendLog("Select a data source before syncing.", "info");
+                }
+            });
+
+            // Google OAuth trigger
+            document.getElementById("btnGoogleAuthConnect").addEventListener('click', handleGoogleAuthorization);
+
+            // Bypass / Demo Mode trigger
+            document.getElementById("btnLockBypassDemo").addEventListener('click', async () => {
+                if (!dataSourceMode) {
+                    appendLog("Select a data source before loading demo data.", "error");
+                    document.getElementById("analysisScopeLabel").textContent = "Select a data source, then choose a phase to begin analysis.";
+                    return;
+                }
+
+                try {
+                    if (dataSourceMode === "csv") {
+                        await loadLocalStatsCsv();
+                        appendLog("Offline bypass enabled. Loaded local stats CSV.", "info");
+                    } else {
+                        generateMockDataset();
+                        setControlsForDatasetReady(true);
+                        updateRatersDropdowns();
+                        rebuildPhaseSelector();
+                        appendLog("Offline bypass enabled. Loaded simulation metrics.", "info");
+                    }
+
+                    document.getElementById("loginLockOverlay").classList.add("hidden");
+
+                    if (discoveredPhases.length > 0 && !selectedPhase) {
+                        selectedPhase = discoveredPhases[0];
+                        document.getElementById("phaseSelect").value = selectedPhase;
+                        rebuildPatientSelector();
+                        updateUI();
+                    }
+                } catch (err) {
+                    appendLog(`Demo load failed: ${err.message}`, "error");
+                }
+            });
+
+            // Sign out
+            document.getElementById("btnSignOut").addEventListener('click', () => {
+                gcpAccessToken = null;
+                setControlsForDatasetReady(false);
+                document.getElementById("loginLockOverlay").classList.remove("hidden");
+                document.getElementById("userProfileIndicator").classList.add("hidden");
+                document.getElementById("unlockedWorkspace").classList.add("hidden");
+                appendLog("Secure session closed.", "info");
+            });
+
+            // Trigger login gateway from Config sidebar
+            document.getElementById("btnSyncGCS").addEventListener('click', () => {
+                document.getElementById("loginLockOverlay").classList.remove("hidden");
+            });
+
+            // Responsive chart resize listener
+            window.addEventListener('resize', resizeCharts);
+
+            // Default startup states
+            generateMockDataset();
+            updateRatersDropdowns();
+            if (discoveredPhases.length > 0) {
+                selectedPhase = discoveredPhases[0];
+                document.getElementById("phaseSelect").value = selectedPhase;
+                rebuildPatientSelector();
+                updateUI();
+            }
+        });
+    </script>
+</body>
+</html>

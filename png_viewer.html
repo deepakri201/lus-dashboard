@@ -1,0 +1,310 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LUS Max-Frame Viewer</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+            background: #06080b;
+            color: #e2e8f0;
+            min-height: 100vh;
+        }
+        header {
+            padding: 1rem 1.5rem;
+            border-bottom: 1px solid #1e293b;
+            background: #0b1018;
+        }
+        header h1 { font-size: 0.85rem; letter-spacing: 0.08em; text-transform: uppercase; color: #94a3b8; }
+        header p { font-size: 0.75rem; color: #64748b; margin-top: 0.35rem; }
+        main { padding: 1.25rem 1.5rem; max-width: none; margin: 0 auto; overflow-x: auto; }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.72rem;
+            table-layout: fixed;
+        }
+        thead th {
+            text-align: left;
+            padding: 0.65rem 0.75rem;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            color: #64748b;
+            border-bottom: 1px solid #1e293b;
+            background: #0b1018;
+            position: sticky;
+            top: 0;
+            z-index: 1;
+        }
+        thead th.zone-col {
+            width: 9.5rem;
+        }
+        thead th.rater-a { color: #22d3ee; }
+        thead th.rater-b { color: #c084fc; }
+        tbody td {
+            padding: 0.75rem;
+            border-bottom: 1px solid #1e293b;
+            vertical-align: top;
+        }
+        tbody td.zone-label {
+            width: 9.5rem;
+            max-width: 9.5rem;
+            padding: 0.75rem 0.5rem 0.75rem 0;
+        }
+        tbody td.img-cell {
+            padding: 0.75rem 0.15rem;
+        }
+        tbody td.img-cell-rater-a {
+            padding-right: 0.05rem;
+        }
+        tbody td.img-cell-rater-b {
+            padding-left: 0.05rem;
+        }
+        thead th.rater-col {
+            padding-left: 0.15rem;
+            padding-right: 0.15rem;
+        }
+        .zone-label {
+            color: #cbd5e1;
+            line-height: 1.3;
+            font-weight: 600;
+            font-size: 0.68rem;
+            word-break: break-word;
+        }
+        .img-cell img {
+            display: block;
+            width: 100%;
+            height: auto;
+            border: 1px solid #1e293b;
+            border-radius: 6px;
+            background: #0f172a;
+        }
+        .img-wrap {
+            position: relative;
+            display: block;
+            width: 100%;
+        }
+        .metric-badge {
+            display: inline-block;
+            padding: 2px 7px;
+            font-size: 0.78rem;
+            font-weight: 700;
+            line-height: 1.2;
+            border-radius: 4px;
+            background: rgba(6, 8, 11, 0.78);
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            pointer-events: none;
+        }
+        .overlay-stack {
+            position: absolute;
+            top: 6px;
+            left: 6px;
+            display: flex;
+            flex-direction: column;
+            align-items: flex-start;
+            gap: 2px;
+            z-index: 1;
+            pointer-events: none;
+        }
+        .frame-badge {
+            display: inline-block;
+            padding: 1px 6px;
+            font-size: 0.62rem;
+            font-weight: 600;
+            line-height: 1.2;
+            border-radius: 4px;
+            color: #94a3b8;
+            background: rgba(6, 8, 11, 0.78);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        .metric-badge-pleura { color: #22d3ee; }
+        .metric-badge-discrete { color: #c084fc; }
+        .metric-badge-confluent { color: #fbbf24; }
+        .missing {
+            width: 100%;
+            height: 180px;
+            border: 1px dashed #334155;
+            border-radius: 6px;
+            background: #0f172a;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #475569;
+            font-size: 0.65rem;
+        }
+        .error {
+            color: #fb7185;
+            background: #1f1015;
+            border: 1px solid #7f1d1d;
+            padding: 1rem;
+            border-radius: 8px;
+            font-size: 0.8rem;
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <h1 id="title">LUS Max-Frame Viewer</h1>
+        <p id="subtitle"></p>
+    </header>
+    <main id="content"></main>
+    <script>
+        const params = new URLSearchParams(window.location.search);
+        const caseId = params.get("case") || "";
+        const phase = params.get("phase") || "";
+        const metric = params.get("metric") || "pleura";
+        const raterA = params.get("raterA") || "Rater A";
+        const raterB = params.get("raterB") || "Rater B";
+        const zone = params.get("zone") || "";
+        const bucket = params.get("bucket") || "";
+        const token = params.get("token") || "";
+
+        const METRIC_LABELS = {
+            pleura: "Pleura %",
+            discrete: "Discrete B-Lines",
+            confluent: "Confluent B-Lines"
+        };
+
+        const metricLabel = METRIC_LABELS[metric] || metric;
+        document.getElementById("title").textContent = `${caseId} · ${metricLabel}`;
+        document.getElementById("subtitle").textContent = zone
+            ? `${phase} · ${zone} · ${raterA} vs ${raterB}`
+            : `${phase} · all lung zones · ${raterA} vs ${raterB}`;
+
+        function parseRows() {
+            const raw = params.get("rows");
+            if (!raw) return [];
+            try {
+                return JSON.parse(raw);
+            } catch {
+                return [];
+            }
+        }
+
+        function mediaUrl(objectPath) {
+            if (!objectPath) return null;
+            if (/^https?:\/\//i.test(objectPath)) return objectPath;
+            if (/^gs:\/\//i.test(objectPath)) {
+                objectPath = objectPath.replace(/^gs:\/\//i, "").split("/").slice(1).join("/");
+            }
+            if (!bucket) return objectPath;
+            let url = `https://storage.googleapis.com/storage/v1/b/${bucket}/o/${encodeURIComponent(objectPath)}?alt=media`;
+            if (token) url += `&access_token=${encodeURIComponent(token)}`;
+            return url;
+        }
+
+        function gsUri(objectPath) {
+            if (!objectPath || !bucket) return "";
+            return `gs://${bucket}/${objectPath.replace(/^\/+/, "")}`;
+        }
+
+        function formatMetricValue(value) {
+            if (value === null || value === undefined || value === "") return null;
+            if (metric === "pleura") return `${value}%`;
+            return String(value);
+        }
+
+        function makeOverlay(frame, metricValue) {
+            const hasFrame = frame !== null && frame !== undefined && frame !== "";
+            const label = formatMetricValue(metricValue);
+            if (!hasFrame && label === null) return null;
+
+            const stack = document.createElement("div");
+            stack.className = "overlay-stack";
+            if (hasFrame) {
+                const frameEl = document.createElement("span");
+                frameEl.className = "frame-badge";
+                frameEl.textContent = `frame ${frame}`;
+                stack.appendChild(frameEl);
+            }
+            if (label !== null) {
+                const badge = document.createElement("span");
+                badge.className = `metric-badge metric-badge-${metric}`;
+                badge.textContent = label;
+                stack.appendChild(badge);
+            }
+            return stack;
+        }
+
+        function makeImgCell(objectPath, alt, metricValue, frame, raterSide) {
+            const td = document.createElement("td");
+            td.className = `img-cell img-cell-rater-${raterSide}`;
+
+            const wrap = document.createElement("div");
+            wrap.className = "img-wrap";
+
+            const url = mediaUrl(objectPath);
+            if (!url) {
+                const blank = document.createElement("div");
+                blank.className = "missing";
+                blank.textContent = "—";
+                wrap.appendChild(blank);
+            } else {
+                const img = document.createElement("img");
+                img.src = url;
+                img.alt = alt;
+                img.loading = "lazy";
+                img.onerror = () => {
+                    img.replaceWith(Object.assign(document.createElement("div"), {
+                        className: "missing",
+                        textContent: "Failed to load"
+                    }));
+                };
+                img.title = gsUri(objectPath);
+                wrap.appendChild(img);
+            }
+
+            const overlay = makeOverlay(frame, metricValue);
+            if (overlay) wrap.appendChild(overlay);
+
+            td.appendChild(wrap);
+            return td;
+        }
+
+        const rows = parseRows();
+        const content = document.getElementById("content");
+
+        if (!rows.length) {
+            content.innerHTML = '<div class="error">No PNG rows in viewer URL.</div>';
+        } else {
+            const table = document.createElement("table");
+            const thead = document.createElement("thead");
+            const headRow = document.createElement("tr");
+
+            const zoneTh = document.createElement("th");
+            zoneTh.className = "zone-col";
+            zoneTh.textContent = "Lung Zone";
+            headRow.appendChild(zoneTh);
+
+            const raterATh = document.createElement("th");
+            raterATh.className = "rater-a rater-col";
+            raterATh.textContent = raterA;
+            headRow.appendChild(raterATh);
+
+            const raterBTh = document.createElement("th");
+            raterBTh.className = "rater-b rater-col";
+            raterBTh.textContent = raterB;
+            headRow.appendChild(raterBTh);
+
+            thead.appendChild(headRow);
+            table.appendChild(thead);
+
+            const tbody = document.createElement("tbody");
+            rows.forEach(row => {
+                const tr = document.createElement("tr");
+                const zoneTd = document.createElement("td");
+                zoneTd.className = "zone-label";
+                zoneTd.textContent = row.zone || "—";
+                tr.appendChild(zoneTd);
+                tr.appendChild(makeImgCell(row.pathA, `${row.zone} · ${raterA} · ${metricLabel}`, row.valueA, row.frameA, "a"));
+                tr.appendChild(makeImgCell(row.pathB, `${row.zone} · ${raterB} · ${metricLabel}`, row.valueB, row.frameB, "b"));
+                tbody.appendChild(tr);
+            });
+            table.appendChild(tbody);
+            content.appendChild(table);
+        }
+    </script>
+</body>
+</html>
