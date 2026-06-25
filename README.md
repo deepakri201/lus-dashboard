@@ -2,7 +2,7 @@
 
 A browser-based dashboard for reviewing lung ultrasound (LUS) annotation agreement between two raters. It connects to a Google Cloud Storage (GCS) bucket, loads annotation statistics, and opens side-by-side PNG comparisons of the max-scoring frames per metric and lung zone.
 
-<img width="1512" height="815" alt="lus_dashboard" src="https://github.com/user-attachments/assets/ee896934-df31-4572-8b50-8742de127ec7" />
+<img width="1508" height="850" alt="lus_dashboard" src="https://github.com/user-attachments/assets/62269ace-f617-405d-a206-d51b4137947d" />
 
 ## What the dashboard does
 
